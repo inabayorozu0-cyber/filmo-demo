@@ -23,14 +23,16 @@
 /* ---- お試し版のしくみ（scripts/build_demo.py が足したもの） ---- */
 (function () {
   const PASS = "3244ea5712cd87f164333bd902c74cdb6e4bc075abe036ae607a572f2452d8c0";
-  const ok = (() => { try { return localStorage.getItem("filmo-demo-pass") === PASS; } catch (e) { return false; } })();
+  const AI_URL = "https://filmo-ai-1.inaba-yorozu0.workers.dev";
+  const getKey = () => { try { return localStorage.getItem("filmo-demo-key") || ""; } catch (e) { return ""; } };
+  const ok = (() => { try { return localStorage.getItem("filmo-demo-pass") === PASS && (!AI_URL || !!getKey()); } catch (e) { return false; } })();
   async function sha(t) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t.trim())); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); }
   if (!ok) document.addEventListener("DOMContentLoaded", () => {
     const g = document.createElement("div"); g.id = "gate";
     g.innerHTML = '<form><img src="anim/filmo.webp" alt=""><b>フィルモスタジオ（お試し版）</b><small>教えてもらった合言葉を入れてください</small><input type="password" autocomplete="off" aria-label="合言葉"><button type="submit">はじめる</button><small id="gateMsg"></small></form>';
     document.body.appendChild(g);
     g.querySelector("form").addEventListener("submit", async e => { e.preventDefault();
-      if (await sha(g.querySelector("input").value) === PASS) { try { localStorage.setItem("filmo-demo-pass", PASS); } catch (err) {} g.remove(); }
+      if (await sha(g.querySelector("input").value) === PASS) { try { localStorage.setItem("filmo-demo-pass", PASS); localStorage.setItem("filmo-demo-key", g.querySelector("input").value.trim()); } catch (err) {} g.remove(); }
       else g.querySelector("#gateMsg").textContent = "合言葉がちがいます"; });
   });
 
@@ -75,7 +77,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     const b = document.createElement("button"); b.className = "dm-btn dm-fab"; b.type = "button"; b.textContent = "✎ 使いづらい所を書く";
     b.addEventListener("click", sheet); document.body.appendChild(b);
-    const bn = document.createElement("div"); bn.className = "dm-banner"; bn.textContent = "お試し版：AIで作るは使えません・直した内容はこの端末だけに保存"; document.body.prepend(bn);
+    const bn = document.createElement("div"); bn.className = "dm-banner"; bn.textContent = AI_URL ? "お試し版：作った動画・直した内容はこの端末だけに保存" : "お試し版：AIで作るは使えません・直した内容はこの端末だけに保存"; document.body.prepend(bn);
   });
 
   /* 保存先（db）：この端末の中だけ（localStorage） */
@@ -118,7 +120,18 @@
     urls[id] = URL.createObjectURL(f); idbPut(id, f);
     return { id, url: "/_blob/" + id, contentType: f.type || "application/octet-stream" }; } };
 
-  window.claude = { use: async name => name === "db" ? { collection: coll } : name === "assets" ? assets : null };
+  /* AIで作る：中継役（Cloudflare Workers）に頼む。キーは中継役にだけある */
+  const sample = AI_URL ? { json: async prompt => {
+    let r;
+    try { r = await fetch(AI_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pass: getKey(), prompt }) }); }
+    catch (e) { __demoLog("エラー", "AIにつながらない：" + e.message); throw e; }
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 403) throw { code: "not_granted" };
+    if (!r.ok) { __demoLog("エラー", "AI " + r.status + " " + (d.error || "")); throw new Error(d.error || "ai_error"); }
+    const t = String(d.text || ""), a = t.indexOf("{"), b = t.lastIndexOf("}");
+    try { return JSON.parse(a >= 0 && b > a ? t.slice(a, b + 1) : t); } catch (e) { __demoLog("エラー", "AIの返事が読めない"); throw new Error("bad_json"); }
+  } } : null;
+  window.claude = { use: async name => name === "db" ? { collection: coll } : name === "assets" ? assets : name === "sample" ? sample : null };
 })();
 </script>
 
@@ -1494,7 +1507,9 @@ const LABEL_KEY = { "想い・理念": "philosophy", "ターゲット": "target"
   "実績・お客様の声": "achievements", "お知らせ": "notices", "出していい話": "ok_to_share", "言わないこと": "ng", "撮影のこと": "shooting", "自由に作るで入れたこと": "free_notes" };
 const ID_PRE = { philosophy: "ph", target: "tg", pains: "pn", goal: "gl", strengths: "st", achievements: "ac", notices: "nt", ok_to_share: "ok", ng: "ng", shooting: "sh", free_notes: "fr" };
 let dbPosts = [], media = [], assets = null, postsLoaded = false;
-const keepPost = () => postsLoaded || !String(state.post || "").startsWith("g-");   // AIで作った投稿が届く前は、開いている動画を変えない
+// AIで作った投稿が届く前は、開いている動画を変えない（作った直後も：保存の知らせより先に画面を描くと、前の動画に戻ってしまう。2026-11-04）
+const keepPost = () => { const id = String(state.post || ""); if (!id.startsWith("g-")) return true; if (!postsLoaded) return false;
+  return !(state.justMade === id && !dbPosts.some(p => p.id === id)); };
 const mediaFor = (postId, fmt) => media.filter(m => m.post === postId && m.format === fmt && m.asset);
 /* 素材の差しかえ：前の素材を hist に残す（「ひとつ前に戻す」用・5つまで）。外す＝asset を空に */
 const slotId = (postId, fmt, shot) => `${postId}__${fmt}__${shot}`;
@@ -2619,7 +2634,7 @@ document.addEventListener("click", async e => {
   try {
     const post = await generatePost(shop, theme, opts, step);
     const ref = await db.collection("posts").add(post);
-    state.post = "g-" + ref.id; state.makeTheme = theme;
+    state.post = "g-" + ref.id; state.justMade = state.post; state.makeTheme = theme; saveUi();
     state.genStatus = `できました（書いた回数 ${post.attempts}回）。${opts.fix ? "直してほしいことを入れて書きました。" : ""}`; state.genFix = "";
   } catch (err) {
     state.genStatus = err.needsInfo ? err.message

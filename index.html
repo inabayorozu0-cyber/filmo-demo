@@ -1243,6 +1243,7 @@ function viewSet() {
   return `
   <div class="head"><h1>設定</h1><p>${esc(s.name)}</p></div>
   <p class="small muted" style="margin:0">試作のため、ここで切り替えても保存されません。</p>
+  <div><button class="btn ghost" type="button" data-tour-start="1">フィルモの使い方の案内をもう一度見る</button></div>
   <div class="settings">
     <section class="panel"><h2>投稿のしかた</h2>
       ${tg("autoPost", false, "自動投稿", "オンにすると、確認しないまま予定の時間に公開されます。内容の責任はご本人にあります。")}
@@ -2747,6 +2748,80 @@ if (!SHOPS[state.shop]) state.shop = "yorozu";
 // AIで作った投稿（g-…）は db から後で届くので、最初の時点で見つからなくても1本目に戻さない（戻すとテーマもよくある質問に変わってしまう）
 if (state.post && !state.post.startsWith("g-") && !shopPosts().some(p => p.id === state.post)) state.post = (shopPosts()[0] || {}).id || "";
 render();
+</script>
+
+<style>
+/* はじめての案内（フィルモが画面を指さして説明する。2026-11-05 真由美さん） */
+#tour { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
+#tour .t-hole { position: fixed; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(30, 22, 14, .62); transition: all .25s ease; pointer-events: none; outline: 3px solid var(--accent); }
+#tour .t-hole.none { left: 50%; top: 40%; width: 0; height: 0; outline: 0; }
+#tour .t-card { position: fixed; left: 50%; transform: translateX(-50%); width: min(460px, calc(100% - 24px)); display: flex; gap: 10px; align-items: flex-end; pointer-events: auto; }
+#tour .t-card.bottom { bottom: max(14px, env(safe-area-inset-bottom)); }
+#tour .t-card.top { top: max(14px, env(safe-area-inset-top)); }
+#tour .t-chara { width: 76px; height: 76px; flex: none; object-fit: contain; border-radius: 50%; background: var(--surface); border: 3px solid var(--accent); padding: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+#tour .t-bubble { flex: 1; background: var(--surface); color: var(--ink); border: 3px solid var(--accent); border-radius: 20px 20px 20px 6px; padding: 12px 14px; font-size: 15px; line-height: 1.7; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+#tour .t-bubble b { color: var(--accent); }
+#tour .t-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+#tour .t-row small { color: var(--muted); margin-right: auto; }
+#tour .t-row button { font: inherit; font-size: 13px; font-weight: 700; border-radius: 999px; padding: 6px 14px; border: 0; cursor: pointer; }
+#tour .t-next { background: var(--accent); color: #fff; }
+#tour .t-back, #tour .t-skip { background: var(--sunken); color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { #tour .t-hole { transition: none; } }
+</style>
+<script>
+(function () {
+  const KEY = "filmo-tour-done";
+  const go = (view, mode) => () => { state.view = view; if (mode) state.makeMode = mode; saveUi(); render(); };
+  const STEPS = [
+    { text: "はじめまして！<b>フィルモ</b>です🎬<br>お店のインスタのリール動画を、いっしょに作るお手伝いをします。使い方を少しだけ案内しますね。" },
+    { el: "#shopSel", text: "ここで<b>お店を選びます</b>。お試しでは「YOROZU」と、架空のパン屋さん「こむぎと日々」が入っています。" },
+    { el: '[data-view="info"]', before: go("info"), text: "<b>サービス情報</b>には、お店のことがまとめてあります。投稿の文章は、<b>ここに書いてあることだけ</b>で作ります。情報が多いほど、いい文章になりますよ。" },
+    { el: ".easy-steps .step", before: go("make", "easy"), text: "<b>動画作成</b>では、まず「どんな動画を作るか」を選びます。よくある質問、想い・理念、サービス紹介…など。タイトルを自分で決める「自由に作る」もあります。" },
+    { el: "[data-generate]", text: "選んだら<b>「作ってもらう」</b>を押すだけ！1〜2分で、投稿文と動画ができあがります。写真がなくても、絵と文字のアニメーションで作れます。" },
+    { el: ".mode-tabs", text: "もっと細かく直したいときは<b>「こだわって直す」</b>へ。文字・音楽・ナレーション・絵を、自分で変えられます。" },
+    { el: '[data-view="hist"]', text: "作った動画は<b>作成履歴</b>にたまります。いらないものは、選んで消せます。" },
+    { el: ".dm-fab", text: "使いにくいところがあったら、ここに書いて送ってください。<b>アプリをよくするのに使います！</b>", optional: true },
+    { text: "案内はここまでです。<b>さっそく作ってみましょう！</b><br><small>この案内は「設定」からもう一度見られます。</small>", last: true },
+  ];
+  let i = 0, box = null;
+  const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  function steps() { return STEPS.filter(s => !s.optional || document.querySelector(s.el)); }
+  function draw() {
+    const list = steps(), st = list[i]; if (!st) return end();
+    if (st.before && !st.done) { st.done = true; st.before(); return setTimeout(draw, 120); }
+    const el = st.el && [...document.querySelectorAll(st.el)].find(visible);
+    if (el) el.scrollIntoView({ block: "center", behavior: "instant" in document.documentElement.style ? "instant" : "auto" });
+    requestAnimationFrame(() => {
+      const hole = box.querySelector(".t-hole"), card = box.querySelector(".t-card");
+      if (el) { const r = el.getBoundingClientRect(), pad = 6;
+        Object.assign(hole.style, { left: r.left - pad + "px", top: r.top - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px" }); hole.classList.remove("none");
+        card.className = "t-card " + (r.top + r.height / 2 > innerHeight * 0.55 ? "top" : "bottom");
+      } else { hole.removeAttribute("style"); hole.classList.add("none"); card.className = "t-card bottom"; }
+      box.querySelector(".t-bubble div").innerHTML = st.text;
+      box.querySelector(".t-count").textContent = `${i + 1} / ${list.length}`;
+      box.querySelector(".t-back").hidden = i === 0;
+      box.querySelector(".t-skip").hidden = !!st.last;
+      box.querySelector(".t-next").textContent = st.last ? "はじめる" : i === 0 ? "案内を見る" : "次へ";
+    });
+  }
+  function end() { try { localStorage.setItem(KEY, "1"); } catch (e) {} if (box) box.remove(); box = null; STEPS.forEach(s => delete s.done); go("make", "easy")(); }
+  window.startTour = () => {
+    if (box) return; i = 0; STEPS.forEach(s => delete s.done);
+    box = document.createElement("div"); box.id = "tour";
+    box.innerHTML = `<div class="t-hole none"></div><div class="t-card bottom" role="dialog" aria-label="フィルモの案内"><img class="t-chara" src="anim/filmo.webp" alt="フィルモ">
+      <div class="t-bubble"><div></div><div class="t-row"><small class="t-count"></small><button class="t-skip" type="button">とばす</button><button class="t-back" type="button">戻る</button><button class="t-next" type="button">次へ</button></div></div></div>`;
+    document.body.appendChild(box);
+    box.querySelector(".t-next").onclick = () => { i++; draw(); };
+    box.querySelector(".t-back").onclick = () => { i = Math.max(0, i - 1); const s = steps()[i]; if (s) delete s.done; draw(); };
+    box.querySelector(".t-skip").onclick = end;
+    draw();
+  };
+  addEventListener("resize", () => { if (box) draw(); });
+  document.addEventListener("click", e => { if (e.target.closest("[data-tour-start]")) startTour(); });
+  // はじめて開いたときだけ。合言葉の入口（お試し版）が出ている間は待つ
+  const seen = () => { try { return localStorage.getItem(KEY) === "1"; } catch (e) { return true; } };
+  if (!seen()) { const t = setInterval(() => { if (!document.getElementById("gate") && document.querySelector("#nav button")) { clearInterval(t); setTimeout(startTour, 500); } }, 400); }
+})();
 </script>
 
 </html>

@@ -299,6 +299,15 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .fix-box { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .fix-box textarea { width: 100%; border: 2px solid var(--line); border-radius: 12px; padding: 8px 10px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); resize: vertical; }
 .fix-box textarea:focus { border-color: var(--accent); outline: none; }
+.klist { display: flex; flex-direction: column; gap: 10px; }
+.kcard { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kcard.empty { opacity: .75; border-style: dashed; }
+.khead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .khead b { font-size: 15px; } .khead .btn { margin-left: auto; } .khead .btn + .btn { margin-left: 0; }
+.khelp { font-size: 12px; color: var(--muted); }
+.kmore summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 700; margin-top: 4px; }
+.kitems { margin: 2px 0 0; padding-left: 20px; line-height: 1.7; overflow-wrap: anywhere; } .kitems li + li { margin-top: 4px; }
+.kcard textarea, .kcard input[type=text] { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
+.kcard label { display: flex; flex-direction: column; gap: 4px; }
 .cur-ask { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--price-bg); color: var(--price-ink); border-radius: 12px; padding: 6px 10px; font-size: 13px; }
 .mode-tabs { display: inline-flex; background: var(--sunken); border-radius: 999px; padding: 4px; gap: 4px; }
 .mode-tabs button { border: 0; background: none; border-radius: 999px; padding: 8px 18px; font-weight: 700; color: var(--muted); }
@@ -507,6 +516,11 @@ tr.click:hover td { background: var(--sunken); }
   .brand, .shop { padding-inline: 0; }
   .brand b { font-size: 17px; }
   .shop select { max-width: 52vw; }
+  /* 2026-11-06：お店の欄がはみ出して画面が左右に動く・アプリ名と重なる → 名前と欄で幅を分け合う */
+  .topline .brand { flex: 0 1 auto; min-width: 0; } .topline .brand-chara { width: 36px; }
+  .topline .brand b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
+  .topline .shop { flex: 1 1 0; min-width: 0; } .topline .shop select { width: 100%; max-width: none; min-width: 0; }
+  html, body { overflow-x: hidden; }
   .brand small, .shop label, .proto-note { display: none; }
   nav { flex-direction: row; overflow-x: auto; gap: 4px; scrollbar-width: none; }
   nav button { flex: none; padding: 6px 10px; font-size: 13px; }
@@ -865,9 +879,32 @@ function karteNow(shop) {
     }
   }
   const colorEdit = kedits.filter(e => e.shop === shop && e.type === "color").sort((a, b) => a.at < b.at ? -1 : 1).pop();
-  return { ...s, karte, services, prices, brandColor: colorEdit ? colorEdit.color : (s.brandColor || "") };
+  // よくある質問：手で直した・足した・使わないにした分を重ねる（2026-11-06 真由美さん：全部載せて、自分で直せるように）
+  const faqs = (s.faqs || []).map((f, i) => ({ ...f, key: "b" + i, edited: false }));
+  for (const e of kedits.filter(e => e.shop === shop && (e.type === "faq" || e.type === "faq-add")).sort((a, b) => a.at < b.at ? -1 : 1)) {
+    let f = faqs.find(x => x.key === e.key);
+    if (!f && e.type === "faq-add") { f = { key: e.key, question: "", answer: "", added: true }; faqs.push(f); }
+    if (!f) continue;
+    Object.assign(f, { question: e.question ?? f.question, answer: e.answer ?? f.answer, off: !!e.off, edited: true });
+  }
+  return { ...s, karte, services, prices, faqsAll: faqs, faqs: faqs.filter(f => !f.off && f.question && f.answer).map(f => ({ question: f.question, answer: f.answer })), brandColor: colorEdit ? colorEdit.color : (s.brandColor || "") };
 }
 
+/* サービス情報の項目が、何に使われるか（2026-11-06 真由美さん：どんな情報を使っているか全部わかるように） */
+const ITEM_HELP = {
+  "想い・理念": "「想い・理念」の投稿や、お店のCMのような動画に使います。",
+  "ターゲット": "だれに向けて書くかを決めるのに使います。",
+  "ターゲットの悩み": "投稿の1行目（「〜で困っていませんか？」）や、よくある質問の理由に使います。",
+  "目指す変化": "読んだ人が、どうなれるかを伝えるのに使います。",
+  "強み": "「選ばれる理由」の投稿に使います。ここが空だと、その投稿は作れません。",
+  "実績・お客様の声": "「お客様の声」の投稿に使います。結果が出たものだけ書いてください。",
+  "お知らせ": "モニター募集・無料相談・営業時間などの案内に使います。",
+  "話し方": "文章の口調（です・ます、やわらかめ など）に使います。",
+  "出していい話": "書いてもいい、お店の事情や話です。",
+  "言わないこと": "投稿に書かないことです。ここに書いたことは使いません。",
+  "撮影のこと": "撮り方ガイドに使います（投稿の文章には使いません）。",
+  "自由に作るで入れたこと": "「自由に作る」で聞かれて書いた情報です。ほかの投稿にも使います。",
+};
 function viewInfo() {
   const s = karteNow(state.shop);
   const empty = s.karte.filter(r => !r[2] && r[0] !== "自由に作るで入れたこと").map(r => r[0]);
@@ -878,14 +915,30 @@ function viewInfo() {
   return `
   <div class="head"><h1>サービス情報</h1><p>投稿文はここにあることだけで書きます。カルテがサイトより優先です。「直す」で直接書き換えられます。</p></div>
   ${empty.length ? `<div class="panel" style="background:var(--warn-soft);border-color:transparent"><b>空いている項目：${empty.join("、")}</b><div class="small">ここが埋まるほど、投稿の材料が増えます。${empty.includes("強み") || empty.includes("実績・お客様の声") ? "「強み」が入ると「選ばれる理由」、「実績・お客様の声」が入ると「お客様の声」の投稿が作れるようになります。" : ""}お知らせチャットでも聞いています。</div></div>` : ""}
-  <section class="panel"><h2>想いカルテ</h2>
-    <div class="table-wrap"><table><thead><tr><th>項目</th><th>入手先</th><th>内容</th><th></th></tr></thead><tbody>
-    ${s.karte.map(([k, src, v, added, edited], i) => {
-      const key = "item:" + i;
-      if (state.editing === key) return `<tr><td style="white-space:nowrap">${k}</td><td></td><td colspan="2"><textarea id="ed-${state.shop}-item-${i}" aria-label="${esc(k)}">${esc(v || "")}</textarea><div class="small muted">「／」で区切ると、別々の材料として扱います。</div>${saveRow(key)}</td></tr>`;
-      return `<tr class="${v ? "" : "empty"}"><td style="white-space:nowrap">${k}${added ? `<br><span class="pill accent">${k === "自由に作るで入れたこと" ? "自由に作るで入れた" : "チャットから追加"}</span>` : ""}${k === "自由に作るで入れたこと" && !v ? '<br><span class="small muted">「自由に作る」で聞かれて書いたことが、ここに残ります</span>' : ""}${edited ? '<br><span class="pill accent">手で直した</span>' : ""}</td><td>${v ? `<span class="pill">${src}</span>` : ""}</td><td>${v ? esc(v) : '<span class="pill bad">空いています</span>'}</td><td>${editBtn(key)}</td></tr>`;
-    }).join("")}
-    </tbody></table></div>
+  <section class="panel"><h2>お店の情報（想いカルテ）</h2>
+    <p class="small muted" style="margin:0 0 12px">フィルモが投稿文と動画を作るときに使う情報は、<b>ここに書いてあることだけ</b>です。「直す」で書き換えると、次に作る動画から使います（前に作った動画には「新しい情報で作り直す」が出ます）。</p>
+    <div class="klist">${s.karte.map(([k, src, v, added, edited], i) => {
+      const key = "item:" + i, items = (v || "").split("／").map(x => x.trim()).filter(Boolean);
+      const tag = added ? `<span class="pill accent">${k === "自由に作るで入れたこと" ? "自由に作るで入れた" : "チャットから追加"}</span>` : edited ? '<span class="pill accent">手で直した</span>' : src ? `<span class="pill">${esc(src)}</span>` : "";
+      return `<div class="kcard ${v ? "" : "empty"}"><div class="khead"><b>${esc(k)}</b>${tag}${state.editing === key ? "" : canEdit ? `<button class="btn ghost small" type="button" data-edit="${key}">${v ? "直す" : "書く"}</button>` : ""}</div>
+        <div class="khelp">${esc(ITEM_HELP[k] || "")}</div>
+        ${state.editing === key ? `<textarea id="ed-${state.shop}-item-${i}" rows="${Math.min(10, items.length + 2)}" aria-label="${esc(k)}">${esc(items.join("\n"))}</textarea><div class="small muted">1行に1つずつ書くと、別々の材料として使います。</div>${saveRow(key)}`
+          : items.length ? `<ul class="kitems">${items.slice(0, 3).map(x => `<li>${esc(x)}</li>`).join("")}</ul>${items.length > 3 ? `<details class="kmore"><summary>あと${items.length - 3}件を見る</summary><ul class="kitems">${items.slice(3).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}` : `<p class="small muted" style="margin:4px 0 0">まだ入っていません。${k === "自由に作るで入れたこと" ? "「自由に作る」で聞かれて書いたことが、ここに残ります。" : ""}</p>`}</div>`;
+    }).join("")}</div>
+  </section>
+  <section class="panel"><h2>よくある質問</h2>
+    <p class="small muted" style="margin:0 0 12px">「よくある質問」の動画に使います（上から3つまでを1本にまとめます）。お客さんによく聞かれることと、その答えを書いてください。</p>
+    <div class="klist">${(s.faqsAll || []).map((f, i) => {
+      const key = "faq:" + f.key;
+      if (state.editing === key) return `<div class="kcard"><label class="small">質問<input type="text" id="ed-${state.shop}-fq-${f.key}" value="${esc(f.question)}"></label>
+        <label class="small">答え<textarea id="ed-${state.shop}-fa-${f.key}" rows="3">${esc(f.answer)}</textarea></label>${saveRow(key)}</div>`;
+      return `<div class="kcard ${f.off ? "empty" : ""}"><div class="khead"><b>Q. ${esc(f.question)}</b>${f.off ? '<span class="pill">使わない</span>' : f.edited ? '<span class="pill accent">手で直した</span>' : ""}
+        ${canEdit ? `<button class="btn ghost small" type="button" data-edit="${key}">直す</button><button class="btn ghost small" type="button" data-faq-off="${f.key}">${f.off ? "使う" : "使わない"}</button>` : ""}</div>
+        <p style="margin:4px 0 0">A. ${esc(f.answer)}</p></div>`;
+    }).join("") || '<p class="small muted">まだありません。</p>'}</div>
+    ${canEdit ? (state.editing === "faq:new" ? `<div class="kcard" style="margin-top:10px"><label class="small">質問<input type="text" id="ed-${state.shop}-fq-new" placeholder="例：駐車場はありますか？"></label>
+        <label class="small">答え<textarea id="ed-${state.shop}-fa-new" rows="3" placeholder="例：お店の前に2台とめられます。"></textarea></label>${saveRow("faq:new")}</div>`
+      : `<button class="btn ghost" type="button" data-edit="faq:new" style="margin-top:10px">＋ 質問を足す</button>`) : ""}
   </section>
   ${updates.length ? `<section class="panel"><h2>定期の情報更新でいただいた返事</h2>${updates.map(c => `<div class="small" style="white-space:pre-wrap;margin-bottom:6px"><span class="pill accent">${esc((c.at || "").slice(0, 10))}</span> ${esc(c.text)}</div>`).join("")}</section>` : ""}
   ${assetsPanel(canEdit)}
@@ -1568,7 +1621,7 @@ function karteStruct(shop) {
   const prices = s.prices.map(([sv, label, amount, regular, remaining]) => ({ service: sv, label, amount, regular, remaining }))
     .filter(p => services.some(x => x.name === p.service && x.active));
   return { name: s.name, industry: s.industry, area: s.area, tone, facts, services, prices, priceLabel: s.priceLabel || "通常",
-    faqs: (base.faqs || []).map((f, i) => ({ id: `fq${i + 1}`, question: f.question, answer: f.answer })),
+    faqs: (s.faqs || []).map((f, i) => ({ id: `fq${i + 1}`, question: f.question, answer: f.answer })),
     hashtags: base.hashtags || [], cta: base.cta || "" };
 }
 
@@ -2645,6 +2698,13 @@ document.addEventListener("click", async e => {
   } finally { state.genBusy = false; render(true); }
 });
 
+/* よくある質問を「使わない」にする（消さずに外す） */
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-faq-off]"); if (!b || !db) return;
+  const f = (karteNow(state.shop).faqsAll || []).find(x => x.key === b.dataset.faqOff); if (!f) return;
+  await db.collection("karte_edits").doc(`${state.shop}__faq__${f.key}`).set({ shop: state.shop, type: f.added ? "faq-add" : "faq", key: f.key, question: f.question, answer: f.answer, off: !f.off, at: new Date().toISOString() });
+  toast(f.off ? "✓ 使うようにしました" : "✓ 使わないようにしました");
+});
 /* 直接の修正：サービス情報と投稿文 */
 document.addEventListener("click", async e => {
   const ed = e.target.closest("[data-edit]");
@@ -2669,7 +2729,13 @@ document.addEventListener("click", async e => {
     } else {
       const [type, idx] = key.split(":"), i = Number(idx);
       if (type === "item") {
-        await db.collection("karte_edits").doc(`${shop}__item__${i}`).set({ shop, type, idx: i, item: shopData(shop).karte[i][0], text: document.getElementById(`ed-${shop}-item-${i}`).value.trim(), at });
+        const text = document.getElementById(`ed-${shop}-item-${i}`).value.split(/\n+/).map(x => x.trim()).filter(Boolean).join("／");
+        await db.collection("karte_edits").doc(`${shop}__item__${i}`).set({ shop, type, idx: i, item: karteNow(shop).karte[i][0], text, at });
+      } else if (type === "faq") {   // よくある質問を直す・足す
+        const fk = key.slice(4), q = (document.getElementById(`ed-${shop}-fq-${fk}`) || {}).value?.trim() || "", a = (document.getElementById(`ed-${shop}-fa-${fk}`) || {}).value?.trim() || "";
+        if (!q || !a) { toast("質問と答えの両方を書いてください"); sv.disabled = false; return; }
+        if (fk === "new") { const nk = "n" + Date.now().toString(36); await db.collection("karte_edits").doc(`${shop}__faq__${nk}`).set({ shop, type: "faq-add", key: nk, question: q, answer: a, at }); }
+        else await db.collection("karte_edits").doc(`${shop}__faq__${fk}`).set({ shop, type: "faq", key: fk, question: q, answer: a, off: false, at });
       } else if (type === "price") {
         const num = id => { const v = document.getElementById(id).value; return v === "" ? null : Math.max(0, Math.round(Number(v))); };
         const amount = num(`ed-${shop}-pa-${i}`);

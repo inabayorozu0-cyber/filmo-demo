@@ -1894,6 +1894,9 @@ ${matsText(mats)}
     history.push(feedback);
   }
   if (feedback.length) { const e = new Error("作れませんでした"); e.problems = feedback; e.history = history; throw e; }
+  // 動画の文字は、仕上がった投稿文から台本として書き直す（よくある質問まとめは Q./A. から組み立てたものをそのまま使う）
+  let scriptNote = [];
+  if (!(theme === "faq" && faqCount(mats) > 1)) { const w = await writeScript(theme, draft.caption_body, onStep, draft.scenes); draft.scenes = w.scenes; scriptNote = w.problems; }
   let body = draft.caption_body.trim();
   if (allowsPrice) body = body.replace(new RegExp("[ \\t　]*" + MARK.replace(/[{}]/g, "\\$&") + "\\s*"), "\n\n" + priceBlock(K, opts.service) + "\n\n").replace(/\n{3,}/g, "\n\n").trim();
   if (K.cta && !body.includes(K.cta)) body += "\n\n" + K.cta;
@@ -1904,7 +1907,7 @@ ${matsText(mats)}
   return { shop, theme, title: t.label + sub, attempts: attempt, scenes: draft.scenes, caption: body + "\n\n" + draft.hashtags.join(" "),
     prices: allowsPrice ? priceValues(K, opts.service) : [], reader: String(plan.reader || ""), wants: String(plan.reader_wants || ""),
     include: two(plan.include), omit: two(plan.omit), history, mats: draft.used_material_ids.filter(i => byId[i]).map(i => `${byId[i].kind}：${byId[i].text}`),
-    request: (opts.fix || "").trim(), from: opts.prev ? opts.prev.id : "", at: new Date().toISOString() };
+    request: (opts.fix || "").trim(), from: opts.prev ? opts.prev.id : "", scriptNote, at: new Date().toISOString() };
 }
 
 /* ---- 描き分け ---- */
@@ -2492,22 +2495,59 @@ function animPost(p) {
 }
 const coverage = p => { const body = p.caption.split("\n").filter(l => !/^\s*#/.test(l)).join(""); return body ? p.scenes.reduce((n, x) => n + x.replace(/→/g, "").length, 0) / body.length : 1; };
 /* いいところを多めに入れて、動画の文字だけ作り直す（投稿文が材料。投稿文にないことは足さない） */
-async function remakeScenes(p) {
-  const prompt = `次のInstagram投稿文から、リール動画の画面に出す文字（場面）を作ってください。
-- 投稿文のいいところ（理由・具体的なこと・読む人の得）を多めに拾う。結論だけに縮めない。全部そのまま並べるのでもない
-- 投稿文に書いていないことは足さない。言葉は投稿文のものを活かす
-- 4〜8場面。最初は手を止めさせる一言、最後は呼びかけ。あいだは1場面に伝えること1つ
-- 1場面は「見出し→補足」（→で区切る）。見出しは20文字以内、補足は45文字以内。よくある質問は「質問→答え→どうするか」
-- 動画の文字は、投稿文の35%以上の量にする
+/* 動画の文字（台本）は、仕上がった投稿文から別に書く。そのあと動画の文字だけを校閲して、だめなら書き直す（2026-11-07 真由美さん A）
+   reelstudio/engine.py の SCRIPT_RULES・write_script と同じに保つ */
+const SCRIPT_RULES = `- 見る人は、音を出さずにスマホで流し見しています。1場面に伝えることは1つ。
+- どの場面も、その場面だけ読んで意味がわかる言葉にする。文の途中で切らない（「〜で」「〜に」「〜を」で終わらせない）。
+- 場面と場面は話がつながる順に並べる。流れの目安：つかみ（読む人の悩み・問いかけ・意外な一言）→ 伝えたいこと → 理由・具体 → 読む人の得 → どうしたらいいか。
+- 1場面は「見出し→補足」の形にしてよい。見出しは15文字くらいまでで、それだけで意味が通る言葉。補足は見出しを受けて、理由や具体を1〜2文で。
+- 投稿文のいいところ（理由・具体・読む人の得）を多めに入れる。結論だけに縮めない。投稿文に書いていないことは足さない。
+- 動画では料金表は見えない。「料金はこちら」「投稿文でご確認ください」「下記」のような、動画だけ見ると意味のない言葉は使わない。料金の数字も書かない（料金に触れるなら「くわしい料金は投稿文で」とだけ）。
+- 「①②③」や同じ言い出し（「ご協力いただきたいこと」など）のくり返しは避ける。
+- 最後の場面は、見た人がすることがわかる呼びかけにする（相談・メッセージなど、投稿文にあるものだけ）。屋号や住所だけで終わらせない。`;
+async function writeScript(theme, body, onStep, prevScenes) {
+  const t = ENGINE.themes[theme], text = body.split(MARK).join("（ここに料金表が入ります）");
+  let feedback = [], scenes = prevScenes || [];
+  for (let k = 1; k <= 3; k++) {
+    onStep && onStep(k === 1 ? "動画の文字を書いています…" : `動画の文字を直しています…（${k}回目）`);
+    const r = await sample.json(`あなたはInstagramリールの動画の文字（テロップ）を書く人です。次の投稿文をもとに、動画の画面に出す文字を3〜8場面で書いてください（場面の数は伝えることの量で決める）。
 
+【テーマ】${t.label}
 【投稿文】
-${p.caption.split("\n").filter(l => !/^\s*#/.test(l)).join("\n")}
+${text}
 
-次の形のJSONだけで答えてください：{"scenes":["場面1","場面2"]}`;
-  const r = await sample.json(prompt, { cache: false });
-  const sc = (Array.isArray(r?.scenes) ? r.scenes : []).map(String).filter(Boolean);
-  if (sc.length < 3) throw new Error("うまく作れませんでした");
-  await saveStyle({ animScenes: sc, textsrc: "ai" });
+【決まり】
+${SCRIPT_RULES}
+${feedback.length ? `\n【前に書いたものの直すところ】\n${feedback.map(x => "- " + x).join("\n")}\n` : ""}
+次の形のJSONだけで答えてください：{"scenes":["場面1","場面2"]}`, { cache: false });
+    const sc = (Array.isArray(r?.scenes) ? r.scenes : []).map(x => String(x).trim()).filter(Boolean);
+    if (sc.length >= 3) scenes = tidyScenes(sc);
+    if (sc.length < 3) { feedback = ["3場面以上で書いてください。"]; continue; }
+    onStep && onStep("動画の文字をチェックしています…");
+    const rv = await sample.json(`あなたは、リール動画の文字（テロップ）の校閲者です。音を出さずに流し見する人の目で、次の動画の文字を確認してください。
+
+【投稿文】（動画の文字の元）
+${text}
+
+【動画の文字】（「→」は同じ場面の中の見出しと補足の区切り）
+${scenes.map((x, i) => `場面${i + 1}：${x}`).join("\n")}
+
+【確かめること】
+${SCRIPT_RULES}
+- 投稿文に書いていないことが入っていないか。
+
+問題があれば、どの場面のどこが、なぜだめかを具体的に書いてください。細かい好みの違いは問題にしないでください。
+次の形のJSONだけで答えてください：{"problems":["場面2：「〜で」で切れていて意味が通らない"]}`, { cache: false });
+    feedback = (Array.isArray(rv?.problems) ? rv.problems : []).map(String).filter(Boolean);
+    if (!feedback.length) break;
+  }
+  return { scenes, problems: feedback };
+}
+async function remakeScenes(p) {   // 前の作り方の投稿：投稿文から動画の文字を書き直す（新しい書き方と同じ）
+  const body = p.caption.split("\n").filter(l => !/^\s*#/.test(l)).join("\n");
+  const w = await writeScript(p.theme, body);
+  if (w.scenes.length < 3) throw new Error("うまく作れませんでした");
+  await saveStyle({ animScenes: w.scenes, textsrc: "ai" });
 }
 
 function castPanel(p, open) {
@@ -2905,6 +2945,50 @@ render();
   // はじめて開いたときだけ。合言葉の入口（お試し版）が出ている間は待つ
   const seen = () => { try { return localStorage.getItem(KEY) === "1"; } catch (e) { return true; } };
   if (!seen()) { const t = setInterval(() => { if (!document.getElementById("gate") && document.querySelector("#nav button")) { clearInterval(t); setTimeout(startTour, 500); } }, 400); }
+})();
+</script>
+<style>
+/* 話して入力（2026-11-07 真由美さん：打つだけじゃなく、マイクで喋って入力したい） */
+#micBtn { position: fixed; z-index: 8000; display: none; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 700; background: var(--accent); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.25); cursor: pointer; }
+#micBtn.on { display: inline-flex; }
+#micBtn.rec { background: #c0392b; animation: micPulse 1.2s ease-in-out infinite; }
+@keyframes micPulse { 50% { box-shadow: 0 0 0 8px rgba(192, 57, 43, .25); } }
+@media (prefers-reduced-motion: reduce) { #micBtn.rec { animation: none; } }
+</style>
+<script>
+(function () {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;   // 使えないブラウザでは出さない（スマホのキーボードのマイクで話して入力できる）
+  const btn = document.createElement("button"); btn.id = "micBtn"; btn.type = "button"; btn.textContent = "🎤 話して入力";
+  document.addEventListener("DOMContentLoaded", () => document.body.appendChild(btn)); if (document.body) document.body.appendChild(btn);
+  let field = null, rec = null, base = "", hideT = null;
+  const ok = el => el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type === "text")) && !el.closest("#gate");
+  function place() {
+    if (!field || !field.isConnected) return hide();
+    const r = field.getBoundingClientRect(), vv = window.visualViewport, top = (vv ? vv.offsetTop : 0);
+    let y = r.top - 38; if (y < top + 4) y = r.bottom + 6;
+    btn.style.top = y + "px"; btn.style.left = Math.max(8, Math.min(innerWidth - btn.offsetWidth - 8, r.right - btn.offsetWidth)) + "px";
+  }
+  function show(el) { clearTimeout(hideT); field = el; btn.classList.add("on"); place(); }
+  function hide() { if (rec) return; btn.classList.remove("on"); field = null; }
+  document.addEventListener("focusin", e => { if (ok(e.target)) show(e.target); });
+  document.addEventListener("focusout", e => { if (ok(e.target)) hideT = setTimeout(hide, 250); });
+  addEventListener("scroll", place, true); addEventListener("resize", place); if (window.visualViewport) visualViewport.addEventListener("resize", place);
+  btn.addEventListener("pointerdown", e => e.preventDefault());   // 押しても入力欄からフォーカスを外さない
+  function stop() { if (rec) { try { rec.stop(); } catch (e) {} } }
+  btn.addEventListener("click", () => {
+    if (rec) return stop();
+    if (!field) return;
+    const f = field; base = f.value ? f.value.replace(/\s*$/, "") + (f.tagName === "TEXTAREA" ? "\n" : " ") : "";
+    rec = new SR(); rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = true;
+    rec.onresult = ev => { let t = ""; for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+      f.value = base + t; f.dispatchEvent(new Event("input", { bubbles: true })); };
+    rec.onerror = ev => { const msg = ev.error === "not-allowed" || ev.error === "service-not-allowed"
+        ? "この画面ではマイクが使えません。キーボードのマイクのボタンで話して入力できます" : ev.error === "no-speech" ? "声が聞こえませんでした。もう一度押して話してください" : "うまく聞き取れませんでした";
+      try { toast(msg); } catch (e) {} };
+    rec.onend = () => { rec = null; btn.classList.remove("rec"); btn.textContent = "🎤 話して入力"; if (document.activeElement !== f) hide(); };
+    try { rec.start(); btn.classList.add("rec"); btn.textContent = "■ 止める（話してください）"; } catch (e) { rec = null; }
+  });
 })();
 </script>
 

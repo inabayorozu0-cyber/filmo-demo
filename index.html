@@ -1883,7 +1883,7 @@ ${matsText(mats)}
       hashtags: [...new Set([...K.hashtags, ...(Array.isArray(raw?.hashtags) ? raw.hashtags.map(String) : [])])],
       used_material_ids: (Array.isArray(raw?.used_material_ids) ? raw.used_material_ids : []).map(String),
     };
-    draft.scenes = tidyScenes(draft.scenes, sceneCount(theme, mats));
+    draft.scenes = (theme === "faq" && faqCount(mats) > 1 && faqScenes(draft.caption_body, draft.scenes)) || tidyScenes(draft.scenes, sceneCount(theme, mats));
     feedback = checkDraftJs(draft, K, allowsPrice, ids, sceneCount(theme, mats), faqCount(mats) > 1 ? FAQ_BODY : ENGINE.maxBody);
     if (!feedback.length) {
       onStep(`${attempt}回目をチェックしています…`);
@@ -2466,11 +2466,29 @@ function captionScenes(p) {
   return out.map(x => x.replace(/^「(.*)」$/, "$1")).slice(0, 12);
 }
 /* 動画に使う文字：手で直した文字 → 投稿文から（おすすめ） → AIの短い文字（お店が選んだとき） */
+/* よくある質問まとめの動画の文字は、投稿文の「Q.／A.」から組み立てる（engine.faq_scenes と同じ。2026-11-07 真由美さん：質問が質問になってない）
+   1問＝1場面：質問（カルテの質問そのまま）→答えの最初の一文→答えの残り。最初の場面（タイトル）と最後の場面（呼びかけ）はAIのものを使う */
+function faqScenes(caption, ai) {
+  const pairs = [], re = /Q[.．]\s*(.+?)\s*\n\s*A[.．]\s*([\s\S]+?)(?=\n\s*\n|\n\s*Q[.．]|$)/g;
+  let m; while ((m = re.exec(caption || ""))) pairs.push([m[1].trim(), m[2].replace(/\s*\n\s*/g, "").trim()]);
+  if (pairs.length < 2) return null;
+  const sent = t => t.match(/[^。！？!?]+[。！？!?]?/g) || [t];
+  const qs = pairs.map(([q, a]) => { const ss = sent(a).map(x => x.trim()).filter(Boolean);
+    return [q, ss[0] || a, ss.slice(1).join("")].filter(Boolean).join("→"); });
+  ai = (ai || []).filter(Boolean);
+  const head = ai[0] && !/[？?]/.test(ai[0].split("→")[0]) ? ai[0] : "よくある質問→よくいただく質問をまとめました";
+  const last = ai.length > 1 ? ai[ai.length - 1] : "";
+  // 呼びかけの場面は「→」をつなげて1つの文に（「→」があると質問のカードになってしまう）
+  const tail = last && !/[？?]/.test(last) && !qs.some(q => q.includes(last.split("→")[0])) ? [last.split("→").map(x => x.trim()).filter(Boolean).join("\n")] : [];
+  return [head, ...qs, ...tail];
+}
 function animPost(p) {
   const st = styleOf(p.id), src = st.textsrc || "ai";
   if (p.edited) return p;
   if (src === "caption") return { ...p, scenes: captionScenes(p) };
-  return st.animScenes ? { ...p, scenes: st.animScenes } : p;
+  if (st.animScenes) return { ...p, scenes: st.animScenes };
+  const fq = p.theme === "faq" ? faqScenes(p.caption, p.scenes) : null;   // 前に作った質問まとめも、ここで組み直して見せる
+  return fq ? { ...p, scenes: fq } : p;
 }
 const coverage = p => { const body = p.caption.split("\n").filter(l => !/^\s*#/.test(l)).join(""); return body ? p.scenes.reduce((n, x) => n + x.replace(/→/g, "").length, 0) / body.length : 1; };
 /* いいところを多めに入れて、動画の文字だけ作り直す（投稿文が材料。投稿文にないことは足さない） */

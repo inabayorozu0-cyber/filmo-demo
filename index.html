@@ -1077,11 +1077,12 @@ function viewInfo() {
 function viewPlan() {
   const posts = shopPosts();
   if (!posts.length) return `<div class="head"><h1>投稿予定</h1></div><section class="panel"><p style="margin:0">まだ予定はありません。投稿を作ると、ここに並びます。</p></section>`;
-  const days = ["10/27（月）", "10/28（火）", "10/29（水）", "10/30（木）", "10/31（金）", "11/1（土）", "11/2（日）"];
+  // 今日から1週間（2026-11-08 真由美さん：日付は自動で変わるように）
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return `${d.getMonth() + 1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`; });
   const slots = {}; [[0, 1, "予約済み"], [2, 0, "確認待ち"], [4, 2, "確認待ち"], [6, 3, "下書き"]].forEach(([d, i, st]) => { if (posts[i]) slots[d] = [posts[i], st]; });
   return `
   <div class="head"><h1>投稿予定</h1><p>投稿ボタンはご本人が押します。自動投稿は設定で選べます。</p></div>
-  <p class="small muted" style="margin:0">下の予定は試作用の例です（日付と状態は仮）。</p>
+  <p class="small muted" style="margin:0">下の予定は試作用の例です（日付は今日から1週間。どの投稿が入るかと状態は仮）。</p>
   <div class="week">${days.map((d, i) => {
     const s = slots[i];
     return `<div class="day"><header>${d}</header>${s ? `<button class="slot" data-open="${s[0].id}"><span>19:00</span><b>${esc(themeLabel(s[0].theme))}</b>
@@ -1089,7 +1090,7 @@ function viewPlan() {
   }).join("")}</div>
   <section class="panel"><h2>確認待ち</h2>
     <div class="table-wrap"><table><thead><tr><th>予定</th><th>テーマ</th><th>料金</th><th></th></tr></thead><tbody>
-    ${[[2, posts[0]], [4, posts[2]]].filter(([, p]) => p).map(([i, p]) => `<tr class="click" data-open="${p.id}"><td>${days[i]} 19:00</td><td>${esc(p.title)}</td><td>${p.prices.length ? '<span class="pill price">料金入り</span>' : "—"}</td><td class="muted small">開いて確認 →</td></tr>`).join("")}
+    ${[[2, posts[0]], [4, posts[2]]].filter(([, p]) => p).map(([i, p]) => `<tr class="click" data-open="${p.id}"><td>${days[i]} 19:00</td><td>${esc(p.title)}</td><td>${p.prices.length ? '<span class="pill price">料金入り</span>' : "—"}</td><td><button class="btn small" type="button" data-open="${p.id}">確認</button></td></tr>`).join("")}
     </tbody></table></div>
   </section>`;
 }

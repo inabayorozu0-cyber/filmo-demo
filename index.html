@@ -321,6 +321,9 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .mat-sheet textarea { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
 .row-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .main-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px dashed var(--line); }
+.custom-head { display: flex; gap: 8px; align-items: center; } .custom-head input { flex: 1; min-width: 0; font-weight: 700; }
+.main-row input[type=text] { border: 2px solid var(--line); border-radius: 10px; padding: 6px 10px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
+.custom-note { width: 100%; font-size: 14px !important; }
 .main-list { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; } .main-list .cast-th { width: 64px; height: 84px; }
 .main-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 @media (max-width: 520px) { .main-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); } .main-slots .cast-th { width: 72px; height: 96px; margin: 0 auto; } }
@@ -938,7 +941,12 @@ document.addEventListener("click", async e => {
    AI自動作成ではここから場面に合うものを使う（キャラクターはタイトル・本文・締めで使い分け、壁紙は動画ごとに変える）。自分で作成では自由に選ぶ。db の main_assets（お店ごとに1つ） */
 const MAIN_SLOTS = [["op", "オープニング", "video", false], ["ed", "エンディング", "video", false], ["charas", "キャラクター（ポーズはいくつでも）", "image", true], ["bgs", "壁紙（背景・何枚でも）", "image", true]];
 const mainOf = shop => { const m = mainAssets[shop] || {};
-  return { ...m, charas: m.charas || (m.chara ? [m.chara] : []), bgs: m.bgs || (m.bg ? [m.bg] : []) }; };
+  return { ...m, charas: m.charas || (m.chara ? [m.chara] : []), bgs: m.bgs || (m.bg ? [m.bg] : []), custom: (m.custom || []).map(c => ({ ...c, ids: c.ids || [] })) }; };
+/* 自分で名前を付ける項目（2026-11-08 真由美さん：その他。名前を自由に変えられる）。{key, name, ids, note}。
+   名前・絵・メモはAIに渡す（本番はAIが名前と絵から意味をくんで使う。試作では記録して、自分で作成のときに選べる） */
+const slotDef = slot => { const c = slot && slot.startsWith("custom:") ? mainOf(state.shop).custom.find(x => x.key === slot.slice(7)) : null;
+  return c ? [slot, c.name || "その他", "any", true] : MAIN_SLOTS.find(x => x[0] === slot); };
+const slotIds = (m, slot) => slot.startsWith("custom:") ? ((m.custom.find(x => x.key === slot.slice(7)) || {}).ids || []) : Array.isArray(m[slot]) ? m[slot] : [m[slot]].filter(Boolean);
 const assetById = (shop, id) => assetsFor(shop).find(a => a.id === id && !a.off) || null;
 const mainItem = (shop, slot) => { const id = mainOf(shop)[slot]; return id ? assetById(shop, id) : null; };
 const mainList = (shop, slot) => (mainOf(shop)[slot] || []).map(id => assetById(shop, id)).filter(Boolean);
@@ -950,9 +958,9 @@ function opEdSrc(shop) {   // オープニング・エンディングの動画�
 }
 const hashOf = t => [...String(t)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 function mainAssetsPanel(canEdit) {
-  const pickSlot = MAIN_SLOTS.find(x => x[0] === state.mainPick), m = mainOf(state.shop);
-  const chosen = pickSlot ? (pickSlot[3] ? m[pickSlot[0]] : [m[pickSlot[0]]].filter(Boolean)) : [];
-  const items = libraryItems(null).filter(it => !pickSlot || it.kind === pickSlot[2]);
+  const pickSlot = slotDef(state.mainPick), m = mainOf(state.shop);
+  const chosen = pickSlot ? slotIds(m, pickSlot[0]) : [];
+  const items = libraryItems(null).filter(it => !pickSlot || pickSlot[2] === "any" || it.kind === pickSlot[2]);
   const tile = (it, slot) => `<div class="mat-slot"><div class="cast-th">${thumbOf({ ...it, kind: it.kind === "video" ? "video" : "image" })}</div>${canEdit ? `<button class="linkish" type="button" data-main-del="${slot}:${esc(it.id)}">外す</button>` : ""}</div>`;
   return `<section class="panel"><h2>主に使う素材</h2>
     <p class="small muted" style="margin:0 0 10px">「AI自動作成」のときに使う素材です。キャラクターはいろんなポーズを入れておくと、フィルモが場面に合わせて使い分けます。</p>
@@ -960,9 +968,15 @@ function mainAssetsPanel(canEdit) {
       return `<div class="main-row"><b class="small">${l}</b><div class="main-list">${list.map(it => tile(it, k)).join("")}
         ${def ? `<div class="mat-slot"><div class="cast-th"><span>はじめからの分</span></div></div>` : ""}
         ${canEdit && (multi || !list.length) ? `<button type="button" class="cast-th mat-add" data-main-pick="${k}" aria-pressed="${state.mainPick === k}"><span>＋<br>${multi ? "足す" : "選ぶ"}</span></button>` : canEdit ? `<button class="linkish" type="button" data-main-pick="${k}">変える</button>` : ""}</div></div>`; }).join("")}
-    ${pickSlot ? `<div class="mat-sheet"><b>${pickSlot[1].replace(/（.*）/, "")}に${pickSlot[3] ? "入れる素材を選ぶ（いくつでも）" : "する素材を選ぶ"}</b><small class="muted">${pickSlot[2] === "video" ? "動画（MP4）が選べます" : "写真・イラストが選べます"}</small>
+    ${m.custom.map(c => { const k = "custom:" + c.key, list = c.ids.map(id => assetById(state.shop, id)).filter(Boolean);
+      return `<div class="main-row"><div class="custom-head"><input type="text" value="${esc(c.name || "")}" data-custom-name="${esc(c.key)}" placeholder="項目の名前（例：ロゴ・看板メニュー）" aria-label="項目の名前" ${canEdit ? "" : "disabled"}>
+          ${canEdit ? `<button class="linkish" type="button" data-custom-del="${esc(c.key)}">項目を消す</button>` : ""}</div>
+        <div class="main-list">${list.map(it => tile(it, k)).join("")}${canEdit ? `<button type="button" class="cast-th mat-add" data-main-pick="${esc(k)}" aria-pressed="${state.mainPick === k}"><span>＋<br>足す</span></button>` : ""}</div>
+        <input type="text" class="custom-note" value="${esc(c.note || "")}" data-custom-note="${esc(c.key)}" placeholder="使い方のメモ（なくてもOK）例：締めに小さく" aria-label="使い方のメモ" ${canEdit ? "" : "disabled"}></div>`; }).join("")}
+    ${canEdit ? `<button class="btn ghost small" type="button" data-custom-add="1" style="margin-top:8px">＋ 項目を足す（名前は自由に決められます）</button>` : ""}
+    ${pickSlot ? `<div class="mat-sheet"><b>${esc(pickSlot[1].replace(/（.*）/, ""))}に${pickSlot[3] ? "入れる素材を選ぶ（いくつでも）" : "する素材を選ぶ"}</b><small class="muted">${pickSlot[2] === "video" ? "動画（MP4）が選べます" : pickSlot[2] === "any" ? "写真・イラスト・動画が選べます" : "写真・イラストが選べます"}</small>
       <div class="mat-grid">${items.map(it => `<button type="button" class="cast-th mat-th" data-main-set="${esc(it.id)}" aria-pressed="${chosen.includes(it.id)}">${thumbOf(it)}</button>`).join("")}
-        ${canEdit && assets ? `<label class="cast-th mat-add"><span>＋<br>この端末から</span><input type="file" accept="${pickSlot[2] === "video" ? "video/mp4,video/webm" : "image/*"}" multiple data-mat-upload="1" hidden></label>` : ""}</div>
+        ${canEdit && assets ? `<label class="cast-th mat-add"><span>＋<br>この端末から</span><input type="file" accept="${pickSlot[2] === "video" ? "video/mp4,video/webm" : pickSlot[2] === "any" ? "image/*,video/mp4,video/webm" : "image/*"}" multiple data-mat-upload="1" hidden></label>` : ""}</div>
       <small class="muted" id="matStatus"></small><div class="row-btns"><button class="btn ghost" type="button" data-main-pick="">${pickSlot[3] ? "できた" : "やめる"}</button></div></div>` : ""}
   </section>`;
 }
@@ -971,12 +985,22 @@ document.addEventListener("click", async e => {
   const pk = e.target.closest("[data-main-pick]"); if (pk) { state.mainPick = state.mainPick === pk.dataset.mainPick ? "" : pk.dataset.mainPick; render(true); return; }
   if (!db) return;
   const st = e.target.closest("[data-main-set]");
-  if (st) { const slot = state.mainPick, def = MAIN_SLOTS.find(x => x[0] === slot), cur = mainOf(state.shop), id = st.dataset.mainSet;
+  if (st) { const slot = state.mainPick, def = slotDef(slot), cur = mainOf(state.shop), id = st.dataset.mainSet;
+    if (slot.startsWith("custom:")) { const c = cur.custom.find(x => x.key === slot.slice(7)); c.ids = c.ids.includes(id) ? c.ids.filter(x => x !== id) : [...c.ids, id]; await saveMain(cur); return; }
     if (def[3]) { const l = cur[slot]; cur[slot] = l.includes(id) ? l.filter(x => x !== id) : [...l, id]; await saveMain(cur); return; }   // いくつでも：押すたびに入れる・外す
     cur[slot] = id; state.mainPick = ""; await saveMain(cur); return; }
   const dl = e.target.closest("[data-main-del]");
   if (dl) { const i = dl.dataset.mainDel.indexOf(":"), slot = dl.dataset.mainDel.slice(0, i), id = dl.dataset.mainDel.slice(i + 1), cur = mainOf(state.shop);
-    if (Array.isArray(cur[slot])) cur[slot] = cur[slot].filter(x => x !== id); else delete cur[slot]; await saveMain(cur); }
+    if (slot.startsWith("custom:")) { const c = cur.custom.find(x => x.key === slot.slice(7)); if (c) c.ids = c.ids.filter(x => x !== id); }
+    else if (Array.isArray(cur[slot])) cur[slot] = cur[slot].filter(x => x !== id); else delete cur[slot]; await saveMain(cur); return; }
+  if (e.target.closest("[data-custom-add]")) { const cur = mainOf(state.shop); cur.custom.push({ key: "c" + Date.now().toString(36), name: "", ids: [], note: "" }); await saveMain(cur); return; }
+  const cd = e.target.closest("[data-custom-del]"); if (cd) { const cur = mainOf(state.shop); cur.custom = cur.custom.filter(x => x.key !== cd.dataset.customDel); await saveMain(cur); }
+});
+document.addEventListener("change", async e => {   // 項目の名前・メモ（打ち終わったら保存）
+  const k = e.target.dataset && (e.target.dataset.customName || e.target.dataset.customNote); if (!k || !db) return;
+  const cur = mainOf(state.shop), c = cur.custom.find(x => x.key === k); if (!c) return;
+  if (e.target.dataset.customName) c.name = e.target.value.trim(); else c.note = e.target.value.trim();
+  await saveMain(cur);
 });
 const HIDE_ITEMS = ["出していい話"];   // 2026-11-08 真由美さん：サイトに出している話は全部出していいので、項目はいらない
 const SHOW_LABEL = { "言わないこと": "投稿NGなこと", "自由に作るで入れたこと": "自分で作成で得た情報" };   // 見せる名前（中のデータの名前はそのまま）
@@ -2657,7 +2681,7 @@ function materialsPanel(p, mode) {
       ${p ? "" : '<div class="row-btns">'}<button class="btn ghost" type="button" data-mat-pick="">やめる</button>${can && !pick.id.startsWith("m:") && !String(pick.id).includes("__d") ? `<button class="linkish" type="button" data-mat-remove="${pick.id}">一覧から外す</button>` : ""}</div></div>` : "";
   return `<div class="mat-panel">${used}
     <div class="small">素材を押すと、どこに・何として・どう使うかを決められます。</div>
-    ${(() => { const m = mainOf(state.shop), mainIds = new Set([m.op, m.ed, ...m.charas, ...m.bgs].filter(Boolean)), btn = it => `<button type="button" class="cast-th mat-th" data-mat-pick="${esc(it.id)}" aria-pressed="${it.id === state.matPick}">${thumbOf(it)}</button>`;
+    ${(() => { const m = mainOf(state.shop), mainIds = new Set([m.op, m.ed, ...m.charas, ...m.bgs, ...m.custom.flatMap(c => c.ids)].filter(Boolean)), btn = it => `<button type="button" class="cast-th mat-th" data-mat-pick="${esc(it.id)}" aria-pressed="${it.id === state.matPick}">${thumbOf(it)}</button>`;
       const mains = items.filter(it => mainIds.has(it.id)), others = items.filter(it => !mainIds.has(it.id));
       return (mains.length ? `<div class="small"><b>主に使う素材</b></div><div class="mat-grid">${mains.map(btn).join("")}</div>` : "") + `<div class="small"><b>素材一覧</b></div><div class="mat-grid">${others.map(btn).join("")}`; })()}
       ${can && assets ? `<label class="cast-th mat-add" title="素材を上げる"><span>＋<br>この端末から</span><input type="file" accept="image/*,video/mp4,video/webm" multiple data-mat-upload="1" hidden></label>` : ""}</div>

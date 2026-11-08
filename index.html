@@ -320,6 +320,9 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .mat-opts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; }
 .mat-sheet textarea { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
 .row-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.main-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.color-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; flex-wrap: wrap; } .color-row > div { display: flex; flex-direction: column; flex: 1; min-width: 140px; }
+.color-chip { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); flex: none; }
 .step-help { margin: -4px 0 10px; font-size: 13px; color: var(--muted); }
 .sub-panel { border: 1px dashed var(--line); border-radius: 14px; padding: 12px; margin-top: 12px; }
 .sub-panel h2 { font-size: 15px; margin: 0 0 6px; }
@@ -364,7 +367,7 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .an-perch { position: absolute; right: -8px; top: calc(40px - 290px * var(--an-chara, 1)); height: calc(290px * var(--an-chara, 1)); }
 .an-q { font: 700 var(--an-body, 56px)/1.6 "Zen Maru Gothic", sans-serif; } .an-q b { font: 800 56px/1 "Shippori Mincho B1", serif; color: #E07B00; }
 .an-a { position: relative; font: 800 var(--an-head, 96px)/1.35 "Shippori Mincho B1", serif; color: #E07B00; } .an-a span { position: relative; }
-.an-mark { position: absolute; left: -16px; right: -16px; bottom: 10px; height: 36px; background: #EEDB5A; opacity: .55; transform-origin: left; border-radius: 40% 60% 50% 50% / 60% 40% 60% 40%; animation: anMark .5s ease-out both; }
+.an-mark { position: absolute; left: -16px; right: -16px; bottom: 10px; height: 36px; background: var(--an-sub, #EEDB5A); opacity: .55; transform-origin: left; border-radius: 40% 60% 50% 50% / 60% 40% 60% 40%; animation: anMark .5s ease-out both; }
 @keyframes anMark { from { transform: scaleX(0); } }
 .an-detail { font: 700 var(--an-body, 56px)/1.6 "Zen Maru Gothic", sans-serif; color: #555; padding-top: 48px; border-top: 2px dotted #ddd; width: 100%; }
 .an-chara { position: absolute; z-index: 2; }   /* キャラクターは文字の前（重なったときの順番は、画面を見ながら直すで変えられる） */
@@ -816,6 +819,8 @@ const working = new Set();   // カルテに入れている途中のチャット
   db.collection("anim_tuning").onSnapshot(s => { const d = s.docs.find(x => x.id === "app"); tuneDoc = d ? d.data() : null; renderSnap(); }, () => {});
   db.collection("brand_assets").onSnapshot(s => { brandAssets = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("post_styles").onSnapshot(s => { postStyles = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
+  db.collection("main_assets").onSnapshot(s => { mainAssets = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); renderSnap(); }, () => {});
+  db.collection("reload_requests").onSnapshot(s => { reloads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("post_hidden").onSnapshot(s => { hiddenPosts = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("media").onSnapshot(s => { media = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   try { assets = await window.claude.use("assets"); } catch (e) { assets = null; }
@@ -866,7 +871,8 @@ $("#shopSel").addEventListener("change", e => {
 function karteNow(shop) {
   const s = shopData(shop);
   const karte = s.karte.map(r => [r[0], r[1], r[2], null, false]);   // 項目, 入手先, 内容, チャットで足した文, 手で直したか
-  if (!karte.some(r => r[0] === "自由に作るで入れたこと")) karte.push(["自由に作るで入れたこと", "自由に作る", "", null, false]);   // いつも最後に置く（空でもよい）
+  if (!karte.some(r => r[0] === "自由に作るで入れたこと")) karte.push(["自由に作るで入れたこと", "動画作成", "", null, false]);   // いつも最後に置く（空でもよい）
+  if (!karte.some(r => r[0] === "その他の情報")) karte.push(["その他の情報", "", "", null, false]);   // 自由に書ける欄（2026-11-08 真由美さん）
   const services = s.services.map(r => [...r, false]);
   const prices = s.prices.map(r => [...r, false]);
   // チャットからの追加と、手で直した分を、起きた順に重ねる
@@ -882,7 +888,7 @@ function karteNow(shop) {
         let row = karte.find(r => r[0] === item);
         if (!row) continue;
         row[2] = row[2] ? row[2] + "／" + f.text : f.text;
-        row[1] = item === "自由に作るで入れたこと" ? "自由に作る" : "チャット";
+        row[1] = item === "自由に作るで入れたこと" ? "動画作成" : "チャット";
         row[3] = (row[3] || []).concat(f.text);
       }
       for (const c of ev.u.services || []) { const sv = services.find(r => r[0] === c.name); if (sv) sv[1] = c.status; }
@@ -894,6 +900,7 @@ function karteNow(shop) {
     }
   }
   const colorEdit = kedits.filter(e => e.shop === shop && e.type === "color").sort((a, b) => a.at < b.at ? -1 : 1).pop();
+  const color2 = kedits.filter(e => e.shop === shop && e.type === "color2").sort((a, b) => a.at < b.at ? -1 : 1).pop();
   // よくある質問：手で直した・足した・使わないにした分を重ねる（2026-11-06 真由美さん：全部載せて、自分で直せるように）
   const faqs = (s.faqs || []).map((f, i) => ({ ...f, key: "b" + i, edited: false }));
   for (const e of kedits.filter(e => e.shop === shop && (e.type === "faq" || e.type === "faq-add")).sort((a, b) => a.at < b.at ? -1 : 1)) {
@@ -902,9 +909,59 @@ function karteNow(shop) {
     if (!f) continue;
     Object.assign(f, { question: e.question ?? f.question, answer: e.answer ?? f.answer, off: !!e.off, edited: true });
   }
-  return { ...s, karte, services, prices, faqsAll: faqs, faqs: faqs.filter(f => !f.off && f.question && f.answer).map(f => ({ question: f.question, answer: f.answer })), brandColor: colorEdit ? colorEdit.color : (s.brandColor || "") };
+  return { ...s, karte, services, prices, faqsAll: faqs, faqs: faqs.filter(f => !f.off && f.question && f.answer).map(f => ({ question: f.question, answer: f.answer })), brandColor: colorEdit ? colorEdit.color : (s.brandColor || ""), subColor: color2 ? color2.color : (s.subColor || "") };
 }
 
+/* 読み込み直す（2026-11-08 真由美さん：サイトやSNSの中身を変えたら、もう一度読み込んでほしい）
+   試作では受け付けて記録するだけ（db の reload_requests。ロズが読み込んでサービス情報に入れる）。本番はサーバーが読み込む */
+let reloads = [], mainAssets = {};
+function reloadPanel(canEdit) {
+  const s = shopData(state.shop), srcs = (sourcesOf(state.shop) || []).join("\n"), last = reloads.filter(r => r.shop === state.shop).sort((a, b) => a.at < b.at ? 1 : -1)[0];
+  return `<section class="panel"><h2>サイト・SNSから読み込む</h2>
+    <p class="small muted" style="margin:0 0 8px">サービス情報は、サイトやSNSから読み込んだ内容がもとです。サイトやSNSの中身を変えたら、もう一度読み込んでください。</p>
+    <label class="small"><b>読み込むところ</b>（1行に1つ。サイトのアドレスやインスタのアカウント）<textarea id="srcList" rows="2" ${canEdit ? "" : "disabled"} placeholder="例：https://example.com／@shop_account">${esc(srcs)}</textarea></label>
+    <div class="row-btns" style="margin-top:8px"><button class="btn" type="button" data-reload="1" ${canEdit ? "" : "disabled"}>読み込み直す</button>
+      <small class="muted">${last ? `前に頼んだ日：${esc(last.at.slice(0, 10))}` : KARTE_CHANGED[state.shop] ? `前に読み込んだ日：${KARTE_CHANGED[state.shop].slice(0, 10)}` : ""}</small></div></section>`;
+}
+const sourcesOf = shop => { const e = kedits.filter(x => x.shop === shop && x.type === "sources").sort((a, b) => a.at < b.at ? -1 : 1).pop(); if (e) return e.list; const s = shopData(shop); return s.site ? [s.site] : []; };
+document.addEventListener("click", async e => {
+  if (!e.target.closest("[data-reload]") || !db) return;
+  const list = (($("#srcList") || {}).value || "").split(/\n+/).map(x => x.trim()).filter(Boolean), at = new Date().toISOString();
+  await db.collection("karte_edits").doc(`${state.shop}__sources`).set({ shop: state.shop, type: "sources", list, at });
+  await db.collection("reload_requests").add({ shop: state.shop, sources: list, at });
+  toast("✓ 読み込み直しを受け付けました。新しい内容をサービス情報に入れます");
+});
+/* 主に使う素材（2026-11-08 真由美さん：オープニング・エンディング・キャラクター・決まった壁紙）。db の main_assets（お店ごとに1つ） */
+const MAIN_SLOTS = [["op", "オープニング", "video"], ["ed", "エンディング", "video"], ["chara", "キャラクター", "image"], ["bg", "壁紙（背景）", "image"]];
+const mainOf = shop => mainAssets[shop] || {};
+const mainItem = (shop, slot) => { const id = mainOf(shop)[slot]; return id ? assetsFor(shop).find(a => a.id === id && !a.off) || null : null; };
+function opEdSrc(shop) {   // オープニング・エンディングの動画：主に使う素材 → YOROZU のはじめからの分
+  const op = mainItem(shop, "op"), ed = mainItem(shop, "ed"), yz = shop === "yorozu";
+  return { op: op ? op.src : yz ? "anim/op.mp4" : "", ed: ed ? ed.src : yz ? "anim/ed.mp4" : "" };
+}
+function mainAssetsPanel(canEdit) {
+  const pickSlot = MAIN_SLOTS.find(x => x[0] === state.mainPick);
+  const items = libraryItems(null).filter(it => !pickSlot || it.kind === pickSlot[2]);
+  return `<section class="panel"><h2>主に使う素材</h2>
+    <p class="small muted" style="margin:0 0 10px">いつも使う素材を決めておくと、動画を作るときに自動で使います（動画ごとに変えることもできます）。</p>
+    <div class="main-slots">${MAIN_SLOTS.map(([k, l, kind]) => { const it = mainItem(state.shop, k), def = (k === "op" || k === "ed") && state.shop === "yorozu" && !it;
+      return `<div class="mat-slot"><button type="button" class="cast-th mat-th" data-main-pick="${k}" aria-pressed="${state.mainPick === k}" ${canEdit ? "" : "disabled"}>${it ? thumbOf({ ...it, kind: it.kind === "video" ? "video" : "image" }) : `<span>${def ? "はじめからの分" : "＋ 選ぶ"}</span>`}</button><small>${l}</small>
+        ${it && canEdit ? `<button class="linkish" type="button" data-main-clear="${k}">外す</button>` : ""}</div>`; }).join("")}</div>
+    ${pickSlot ? `<div class="mat-sheet"><b>${pickSlot[1]}にする素材を選ぶ</b><small class="muted">${pickSlot[2] === "video" ? "動画（MP4）が選べます" : "写真・イラストが選べます"}</small>
+      <div class="mat-grid">${items.map(it => `<button type="button" class="cast-th mat-th" data-main-set="${esc(it.id)}">${thumbOf(it)}</button>`).join("")}
+        ${canEdit && assets ? `<label class="cast-th mat-add"><span>＋<br>上げる</span><input type="file" accept="${pickSlot[2] === "video" ? "video/mp4,video/webm" : "image/*"}" data-mat-upload="1" hidden></label>` : ""}</div>
+      <small class="muted" id="matStatus"></small><div class="row-btns"><button class="btn ghost" type="button" data-main-pick="">やめる</button></div></div>` : ""}
+  </section>`;
+}
+document.addEventListener("click", async e => {
+  const pk = e.target.closest("[data-main-pick]"); if (pk) { state.mainPick = state.mainPick === pk.dataset.mainPick ? "" : pk.dataset.mainPick; render(true); return; }
+  const st = e.target.closest("[data-main-set]"), cl = e.target.closest("[data-main-clear]");
+  if ((st || cl) && db) { const cur = { ...mainOf(state.shop) }, slot = cl ? cl.dataset.mainClear : state.mainPick;
+    if (st) cur[slot] = st.dataset.mainSet; else delete cur[slot];
+    const { id, ...keep } = cur; await db.collection("main_assets").doc(state.shop).set({ ...keep, at: new Date().toISOString() }); state.mainPick = ""; toast("✓ 自動で保存しました"); }
+});
+const HIDE_ITEMS = ["出していい話"];   // 2026-11-08 真由美さん：サイトに出している話は全部出していいので、項目はいらない
+const SHOW_LABEL = { "言わないこと": "投稿NGなこと", "自由に作るで入れたこと": "自分で作成で得た情報" };   // 見せる名前（中のデータの名前はそのまま）
 /* サービス情報の項目が、何に使われるか（2026-11-06 真由美さん：どんな情報を使っているか全部わかるように） */
 const ITEM_HELP = {
   "想い・理念": "「想い・理念」の投稿や、お店のCMのような動画に使います。",
@@ -916,61 +973,40 @@ const ITEM_HELP = {
   "お知らせ": "モニター募集・無料相談・営業時間などの案内に使います。",
   "話し方": "文章の口調（です・ます、やわらかめ など）に使います。",
   "出していい話": "書いてもいい、お店の事情や話です。",
-  "言わないこと": "投稿に書かないことです。ここに書いたことは使いません。",
+  "言わないこと": "投稿に書かないことです。例：他社の話はしない／お客様の名前や写真は出さない／まだ決まっていない値下げやキャンペーンの話はしない",
   "撮影のこと": "撮り方ガイドに使います（投稿の文章には使いません）。",
-  "自由に作るで入れたこと": "「自由に作る」で聞かれて書いた情報です。ほかの投稿にも使います。",
+  "自由に作るで入れたこと": "動画を作るときに聞かれて書いた情報です（年末年始のお休みなど）。ほかの動画にも使います。",
+  "その他の情報": "ほかに伝えたいことを自由に書いてください（例：駐車場あり・子ども連れ歓迎・季節のメニュー）。投稿の材料に使います。",
 };
 function viewInfo() {
   const s = karteNow(state.shop);
-  const empty = s.karte.filter(r => !r[2] && r[0] !== "自由に作るで入れたこと").map(r => r[0]);
+  const empty = s.karte.filter(r => !r[2] && !["自由に作るで入れたこと", "その他の情報", ...HIDE_ITEMS].includes(r[0])).map(r => SHOW_LABEL[r[0]] || r[0]);
   const updates = chats.filter(c => c.shop === state.shop && c.topic === "update");
   const canEdit = dbState === "on";
   const editBtn = key => canEdit ? `<button class="btn ghost small" type="button" data-edit="${key}">直す</button>` : "";
   const saveRow = key => `<div style="display:flex;gap:8px;margin-top:8px"><button class="btn" type="button" data-save="${key}">保存</button><button class="btn ghost" type="button" data-edit="">やめる</button></div>`;
   return `
-  <div class="head"><h1>サービス情報</h1><p>投稿文はここにあることだけで書きます。カルテがサイトより優先です。「直す」で直接書き換えられます。</p></div>
+  <div class="head"><h1>サービス情報</h1><p>投稿文と動画は、ここにあることだけで作ります。サイトより、ここに書いた内容が優先です。</p></div>
   ${empty.length ? `<div class="panel" style="background:var(--warn-soft);border-color:transparent"><b>空いている項目：${empty.join("、")}</b><div class="small">ここが埋まるほど、投稿の材料が増えます。${empty.includes("強み") || empty.includes("実績・お客様の声") ? "「強み」が入ると「選ばれる理由」、「実績・お客様の声」が入ると「お客様の声」の投稿が作れるようになります。" : ""}お知らせチャットでも聞いています。</div></div>` : ""}
-  <section class="panel"><h2>お店の情報（想いカルテ）</h2>
+  <section class="panel"><h2>サービス情報</h2>
     <p class="small muted" style="margin:0 0 12px">フィルモが投稿文と動画を作るときに使う情報は、<b>ここに書いてあることだけ</b>です。「直す」で書き換えると、次に作る動画から使います（前に作った動画には「新しい情報で作り直す」が出ます）。</p>
-    <div class="klist">${s.karte.map(([k, src, v, added, edited], i) => {
+    <div class="klist">${s.karte.map(([k, src, v, added, edited], i) => HIDE_ITEMS.includes(k) ? "" : (() => {
       const key = "item:" + i, items = (v || "").split("／").map(x => x.trim()).filter(Boolean);
-      const tag = added ? `<span class="pill accent">${k === "自由に作るで入れたこと" ? "自由に作るで入れた" : "チャットから追加"}</span>` : edited ? '<span class="pill accent">手で直した</span>' : src ? `<span class="pill">${esc(src)}</span>` : "";
-      return `<div class="kcard ${v ? "" : "empty"}"><div class="khead"><b>${esc(k)}</b>${tag}${state.editing === key ? "" : canEdit ? `<button class="btn ghost small" type="button" data-edit="${key}">${v ? "直す" : "書く"}</button>` : ""}</div>
+      const tag = added ? `<span class="pill accent">${k === "自由に作るで入れたこと" ? "動画作成で入れた" : "チャットから追加"}</span>` : edited ? '<span class="pill accent">手で直した</span>' : src ? `<span class="pill">${esc(src)}</span>` : "";
+      return `<div class="kcard ${v ? "" : "empty"}"><div class="khead"><b>${esc(SHOW_LABEL[k] || k)}</b>${tag}${state.editing === key ? "" : canEdit ? `<button class="btn ghost small" type="button" data-edit="${key}">${v ? "直す" : "書く"}</button>` : ""}</div>
         <div class="khelp">${esc(ITEM_HELP[k] || "")}</div>
         ${state.editing === key ? `<textarea id="ed-${state.shop}-item-${i}" rows="${Math.min(10, items.length + 2)}" aria-label="${esc(k)}">${esc(items.join("\n"))}</textarea><div class="small muted">1行に1つずつ書くと、別々の材料として使います。</div>${saveRow(key)}`
-          : items.length ? `<ul class="kitems">${items.slice(0, 3).map(x => `<li>${esc(x)}</li>`).join("")}</ul>${items.length > 3 ? `<details class="kmore"><summary>あと${items.length - 3}件を見る</summary><ul class="kitems">${items.slice(3).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}` : `<p class="small muted" style="margin:4px 0 0">まだ入っていません。${k === "自由に作るで入れたこと" ? "「自由に作る」で聞かれて書いたことが、ここに残ります。" : ""}</p>`}</div>`;
-    }).join("")}</div>
+          : items.length ? `<ul class="kitems">${items.slice(0, 3).map(x => `<li>${esc(x)}</li>`).join("")}</ul>${items.length > 3 ? `<details class="kmore"><summary>あと${items.length - 3}件を見る</summary><ul class="kitems">${items.slice(3).map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}` : `<p class="small muted" style="margin:4px 0 0">まだ入っていません。${k === "自由に作るで入れたこと" ? "動画を作るときに聞かれて書いたことが、ここに残ります。" : ""}</p>`}</div>`;
+    })()).join("")}</div>
   </section>
-  <section class="panel"><h2>よくある質問</h2>
-    <p class="small muted" style="margin:0 0 12px">「よくある質問」の動画に使います（上から3つまでを1本にまとめます）。お客さんによく聞かれることと、その答えを書いてください。</p>
-    <div class="klist">${(s.faqsAll || []).map((f, i) => {
-      const key = "faq:" + f.key;
-      if (state.editing === key) return `<div class="kcard"><label class="small">質問<input type="text" id="ed-${state.shop}-fq-${f.key}" value="${esc(f.question)}"></label>
-        <label class="small">答え<textarea id="ed-${state.shop}-fa-${f.key}" rows="3">${esc(f.answer)}</textarea></label>${saveRow(key)}</div>`;
-      return `<div class="kcard ${f.off ? "empty" : ""}"><div class="khead"><b>Q. ${esc(f.question)}</b>${f.off ? '<span class="pill">使わない</span>' : f.edited ? '<span class="pill accent">手で直した</span>' : ""}
-        ${canEdit ? `<button class="btn ghost small" type="button" data-edit="${key}">直す</button><button class="btn ghost small" type="button" data-faq-off="${f.key}">${f.off ? "使う" : "使わない"}</button>` : ""}</div>
-        <p style="margin:4px 0 0">A. ${esc(f.answer)}</p></div>`;
-    }).join("") || '<p class="small muted">まだありません。</p>'}</div>
-    ${canEdit ? (state.editing === "faq:new" ? `<div class="kcard" style="margin-top:10px"><label class="small">質問<input type="text" id="ed-${state.shop}-fq-new" placeholder="例：駐車場はありますか？"></label>
-        <label class="small">答え<textarea id="ed-${state.shop}-fa-new" rows="3" placeholder="例：お店の前に2台とめられます。"></textarea></label>${saveRow("faq:new")}</div>`
-      : `<button class="btn ghost" type="button" data-edit="faq:new" style="margin-top:10px">＋ 質問を足す</button>`) : ""}
-  </section>
+  ${reloadPanel(canEdit)}
   ${updates.length ? `<section class="panel"><h2>定期の情報更新でいただいた返事</h2>${updates.map(c => `<div class="small" style="white-space:pre-wrap;margin-bottom:6px"><span class="pill accent">${esc((c.at || "").slice(0, 10))}</span> ${esc(c.text)}</div>`).join("")}</section>` : ""}
-  <section class="panel"><h2>動画に使う絵・背景</h2><p class="small muted" style="margin:0 0 8px">キャラクターや壁紙は「動画作成」の「素材を決める」で登録・選べるようになりました。</p>
-    <button class="btn ghost" type="button" data-go-media="1">動画作成の「素材を決める」へ</button></section>
-  <section class="panel"><h2>お店の色</h2>
-    <p class="small muted" style="margin:0 0 10px">動画の文字の色に使います。ロゴや看板の色を選んでください。空のときは、上げてもらった写真から色を拾います。</p>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      ${s.brandColor ? `<span style="width:28px;height:28px;border-radius:6px;border:1px solid var(--line);background:${esc(s.brandColor)}"></span><code>${esc(s.brandColor)}</code>` : '<span class="pill">まだ決まっていません（写真から拾います）</span>'}
-      ${canEdit ? `<label class="btn ghost" style="cursor:pointer">色を選ぶ<input type="color" id="brandColor" value="${esc(s.brandColor || "#FFD54A")}" style="width:0;height:0;opacity:0;position:absolute"></label>${s.brandColor ? '<button class="btn ghost" type="button" data-clear-color="1">写真から拾う</button>' : ""}` : ""}
-    </div>
-  </section>
-  <section class="panel"><h2>サービスと受付の状態</h2>
-    <div class="table-wrap"><table><thead><tr><th>サービス</th><th>状態</th><th>メモ</th></tr></thead><tbody>
-    ${s.services.map(([n, st, m], i) => `<tr><td>${n}</td><td>${canEdit
-      ? `<select data-svc="${i}" aria-label="${esc(n)}の状態"><option ${st === "受付中" ? "selected" : ""}>受付中</option><option ${st === "休止中" ? "selected" : ""}>休止中</option></select>`
-      : `<span class="pill ${st === "受付中" ? "good" : "bad"}">${st}</span>`}</td><td class="muted">${esc(m)}${st === "休止中" ? "（投稿で案内しません）" : ""}</td></tr>`).join("")}
-    </tbody></table></div>
+  ${mainAssetsPanel(canEdit)}
+  <section class="panel"><h2>テーマカラー</h2>
+    <p class="small muted" style="margin:0 0 10px">動画の文字や飾りに使う色です。ロゴや看板の色を選んでください。決めていないときは、写真から色を拾います。</p>
+    ${[["brandColor", "テーマカラー", s.brandColor, "文字の色に使います", "#FFD54A"], ["subColor", "サブカラー", s.subColor, "マーカーや線など、ポイントに使います", "#EEDB5A"]].map(([id, l, c, sub, def]) => `<div class="color-row">
+      <span class="color-chip" style="background:${esc(c || "transparent")}"></span><div><b>${l}</b><small class="muted">${c ? esc(c) + "・" : ""}${sub}</small></div>
+      ${canEdit ? `<label class="btn ghost small" style="cursor:pointer">選ぶ<input type="color" id="${id}" value="${esc(c || def)}" style="width:0;height:0;opacity:0;position:absolute"></label>${c ? `<button class="btn ghost small" type="button" data-clear-color="${id}">決めない</button>` : ""}` : ""}</div>`).join("")}
   </section>
   <section class="panel"><h2>料金 <span class="pill price">投稿にはこの数字をそのまま差し込みます</span></h2>
     <div class="table-wrap"><table><thead><tr><th>サービス</th><th>メニュー</th><th>料金（税込）</th><th>比べる値段（${esc(s.priceLabel)}）</th><th>残り枠</th><th></th></tr></thead><tbody>
@@ -1577,8 +1613,8 @@ document.addEventListener("click", async e => {
 const ENGINE = {"judgment": "", "themes": {"faq": {"label": "よくある質問", "goal": "よくある質問をまとめて、1つずつ短くはっきり答える。", "price": false}, "philosophy": {"label": "想い・理念", "goal": "なぜこの仕事をしているのか、何を大切にしているのかを伝える。", "price": false}, "service_intro": {"label": "サービス紹介", "goal": "ターゲットの悩みに対して、何をお任せできるかを伝える。", "price": true}, "monitor": {"label": "モニター募集", "goal": "実績づくりのためにモニターを募集していることと、条件・料金を伝える。", "price": true}, "customer_voice": {"label": "お客様の声", "goal": "実際にいただいた声・結果を紹介する。", "price": false}, "strength": {"label": "選ばれる理由", "goal": "他ではなく、ここを選ぶ理由を伝える。", "price": false}, "free": {"label": "自由に作る", "goal": "お店が決めたタイトル「{title}」に沿って、材料のうち合うものだけで伝える。合う材料がないことは書かない。", "price": false}}, "maxScene": 20, "maxBody": 450, "maxTags": 5, "overclaim": ["必ず", "絶対", "No.1", "日本一", "業界最安", "100%", "保証します"], "marker": "{{料金}}"};
 const MARK = ENGINE.marker;
 const LABEL_KEY = { "想い・理念": "philosophy", "ターゲット": "target", "ターゲットの悩み": "pains", "目指す変化": "goal", "強み": "strengths",
-  "実績・お客様の声": "achievements", "お知らせ": "notices", "出していい話": "ok_to_share", "言わないこと": "ng", "撮影のこと": "shooting", "自由に作るで入れたこと": "free_notes" };
-const ID_PRE = { philosophy: "ph", target: "tg", pains: "pn", goal: "gl", strengths: "st", achievements: "ac", notices: "nt", ok_to_share: "ok", ng: "ng", shooting: "sh", free_notes: "fr" };
+  "実績・お客様の声": "achievements", "お知らせ": "notices", "出していい話": "ok_to_share", "言わないこと": "ng", "撮影のこと": "shooting", "自由に作るで入れたこと": "free_notes", "その他の情報": "other_notes" };
+const ID_PRE = { philosophy: "ph", target: "tg", pains: "pn", goal: "gl", strengths: "st", achievements: "ac", notices: "nt", ok_to_share: "ok", ng: "ng", shooting: "sh", free_notes: "fr", other_notes: "ot" };
 let dbPosts = [], media = [], assets = null, postsLoaded = false;
 // AIで作った投稿が届く前は、開いている動画を変えない（作った直後も：保存の知らせより先に画面を描くと、前の動画に戻ってしまう。2026-11-04）
 const keepPost = () => { const id = String(state.post || ""); if (!id.startsWith("g-")) return true; if (!postsLoaded) return false;
@@ -1664,7 +1700,7 @@ function selectMaterials(K, theme, opts = {}) {
     if (!svs.length) throw needsInfo("受付中のサービスがありません。");
     return [...svs.map(s => ({ id: s.id, kind: "サービス", text: s.name + (s.note ? `（${s.note}）` : "") })),
       ...F("ターゲットの悩み", "pains"), ...F("目指す変化", "goal"),
-      ...F("お知らせ", "notices").filter(m => m.text.includes("窓口") || m.text.includes("無料"))];
+      ...F("お知らせ", "notices").filter(m => m.text.includes("窓口") || m.text.includes("無料")), ...F("その他の情報", "other_notes")];
   }
   if (theme === "monitor") {
     const mon = F("お知らせ", "notices").filter(m => m.text.includes("モニター"));
@@ -1683,7 +1719,7 @@ function selectMaterials(K, theme, opts = {}) {
   if (theme === "free") {   // お店が自分でタイトルをつける。材料はカルテ全部から、AIがタイトルに合うものを選ぶ（themes.py と同じ）
     if (!(opts.title || "").trim()) throw needsInfo("タイトルを入れてください。");
     return [...F("想い・理念", "philosophy"), ...F("ターゲット", "target"), ...F("ターゲットの悩み", "pains"), ...F("目指す変化", "goal"),
-      ...F("強み", "strengths"), ...F("実績・お客様の声", "achievements"), ...F("お知らせ", "notices"), ...F("自由に作るで入れたこと", "free_notes"),
+      ...F("強み", "strengths"), ...F("実績・お客様の声", "achievements"), ...F("お知らせ", "notices"), ...F("自由に作るで入れたこと", "free_notes"), ...F("その他の情報", "other_notes"),
       ...K.services.filter(x => x.active).map(x => ({ id: x.id, kind: "サービス", text: x.name + (x.note ? `（${x.note}）` : "") })),
       ...(K.faqs || []).map(f => ({ id: f.id, kind: "質問と答え", text: `質問：${f.question}\n答え：${f.answer}` }))];
   }
@@ -2141,6 +2177,7 @@ const pickAsset = (shop, kind, scene, n = 0) => {
   const key = kind === "bg" ? "bg" : scene, ov = castNow[key];
   if (ov === "none") return null;
   if (ov) { const a = assetsFor(shop).find(x => x.id === ov); if (a) return a; }
+  const main = mainItem(shop, kind === "bg" ? "bg" : "chara"); if (main) return main;   // 主に使う素材
   const xs = assetsFor(shop).filter(a => !a.off && a.kind === kind && (a.scenes || []).includes(scene)); return xs.length ? xs[n % xs.length] : null; };
 async function saveAsset(id, patch) {
   if (!db) return;
@@ -2659,7 +2696,7 @@ document.addEventListener("click", e => { const b = e.target.closest("[data-cast
   saveStyle({ cast: cur }); });
 function animPanel(p) {
   p = animPost(p);
-  const oe = opEdOf(p), has = state.shop === "yorozu";   // OP・EDがあるのは、今はYOROZUだけ
+  const oe = opEdOf(p), oes = opEdSrc(state.shop), has = !!(oes.op || oes.ed);   // OP・ED：主に使う素材（YOROZU ははじめからの分）
   const { total } = animMarkup(p, karteNow(state.shop).name, state.shop === "yorozu");
   const all = total + (has && oe.op ? OP_SEC : 0) + (has && oe.ed ? ED_SEC : 0);
   return `<div class="an-box" id="anBox" data-post="${esc(p.id)}"><div class="an-stage" id="anStage"></div><video id="anVid" playsinline hidden></video>
@@ -2667,7 +2704,7 @@ function animPanel(p) {
     <div class="small" style="display:flex;flex-direction:column;gap:4px">
       <span>見た目：<b>${state.shop === "yorozu" ? "YOROZU風（サイトの水彩・明朝）" : "やさしい水彩"}</b></span>
       <span>長さ：約${Math.round(all)}秒（中身${Math.round(total)}秒${has && (oe.op || oe.ed) ? `＋${[oe.op && "OP", oe.ed && "ED"].filter(Boolean).join("・")}` : ""}）。長さは決めず、読める時間から決まります</span>
-      <span>OP・ED：<b>${!has ? "なし（まだ作っていません）" : oe.op && oe.ed ? "OPとED" : oe.op ? "OPだけ" : oe.ed ? "EDだけ" : "つけない"}</b>${has && oe.choice === "auto" ? `（おまかせ：${opEdAuto(p.theme) ? "お店のCMのような投稿なので" : "最初の1〜2秒が大事な投稿なので"}）` : ""}</span>
+      <span>OP・ED：<b>${!has ? "なし（サービス情報の「主に使う素材」で入れられます）" : oe.op && oe.ed ? "OPとED" : oe.op ? "OPだけ" : oe.ed ? "EDだけ" : "つけない"}</b>${has && oe.choice === "auto" ? `（おまかせ：${opEdAuto(p.theme) ? "お店のCMのような投稿なので" : "最初の1〜2秒が大事な投稿なので"}）` : ""}</span>
       ${dbState === "on" && has ? `<label>OP・ED <select id="opSel">${Object.entries(OP_CHOICES).map(([k, l]) => `<option value="${k}" ${k === oe.choice ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
     </div>
     ${p.theme === "faq" && !p.scenes.some(x => x.includes("→")) ? `<p class="small" style="margin:0;padding:8px 10px;border-radius:8px;background:var(--price-bg);color:var(--price-ink)">この投稿は前の作り方（3場面・答えだけ）なので、中身が短く、理由も出ません。上の「AIでもう1本作る」で作り直すと、3問×「質問→答え→どうするか」になります。</p>` : ""}
@@ -2714,10 +2751,11 @@ document.addEventListener("click", e => {
   const p0 = postNow(r0);
   const p = animPost(p0);
   const bx = $("#anBox"), stage = $("#anStage"), vid = $("#anVid"), cover = $("#anCover"); if (!bx || !stage || !vid || !cover) return;
-  const oe = opEdOf(p), has = state.shop === "yorozu", useOp = has && oe.op, useEd = has && oe.ed;
+  const oe = opEdOf(p), oes = opEdSrc(state.shop), useOp = !!(oes.op && oe.op), useEd = !!(oes.ed && oe.ed);
   const { html, total } = animMarkup(p, karteNow(state.shop).name, state.shop === "yorozu");
   const T = TUNE();
   stage.style.transform = `scale(${bx.clientWidth / LAYOUT.W})`;
+  { const sub = karteNow(state.shop).subColor; if (sub) stage.style.setProperty("--an-sub", sub); }   // サブカラー＝マーカーの色
   stage.style.setProperty("--an-bg", T.bg / 100); stage.style.setProperty("--an-head", T.head + "px"); stage.style.setProperty("--an-body", T.body + "px"); stage.style.setProperty("--an-chara", T.chara / 100);
   stopPlayer(); cover.hidden = true; stage.innerHTML = "";
   const mu = musicOf(p), na = narrOf(p), o = musicOpts(p), tl = animTimeline(p.scenes, p.durations || styleOf(p.id).durations || {});
@@ -2730,7 +2768,7 @@ document.addEventListener("click", e => {
     const t = now();
     tl.forEach(({ t0 }, i) => { if (na.choice === "ai" && window.speechSynthesis && t0 + 0.3 >= t) pl.timers.push(setTimeout(() => {
       const u = new SpeechSynthesisUtterance(speakText(p.scenes[i])); u.lang = "ja-JP"; u.rate = 1.15; speechSynthesis.speak(u); }, (t0 + 0.3 - t) * 1000)); });
-    pl.timers.push(setTimeout(() => useEd ? playVid("anim/ed.mp4", finish, "ed") : finish(), Math.max(0, total - t) * 1000));
+    pl.timers.push(setTimeout(() => useEd ? playVid(oes.ed, finish, "ed") : finish(), Math.max(0, total - t) * 1000));
     if (music) pl.tick = setInterval(() => {   // フェードイン → 最後はフェードアウト（プチッと切れない）
       const x = now(), left = total - x, peak = o.vol / 100;
       let v = peak * Math.min(1, o.fadeIn > 0 ? x / o.fadeIn : 1);
@@ -2758,7 +2796,7 @@ document.addEventListener("click", e => {
     if (pl.phase === "anim") { pl.start = performance.now(); stage.getAnimations({ subtree: true }).forEach(a => a.play()); pl.audios.forEach(a => a.play().catch(() => {})); schedule(); }
     else vid.play().catch(() => {});
   };
-  useOp ? playVid("anim/op.mp4", playAnim, "op") : playAnim();
+  useOp ? playVid(oes.op, playAnim, "op") : playAnim();
 });
 document.addEventListener("change", e => {
   if (e.target.id === "opSel") saveStyle({ op: e.target.value });
@@ -2815,11 +2853,13 @@ document.addEventListener("click", e => {
 
 /* お店の色・雰囲気を変える */
 document.addEventListener("change", async e => {
-  if (e.target.id === "brandColor" && db) { try { await db.collection("karte_edits").doc(`${state.shop}__color`).set({ shop: state.shop, type: "color", color: e.target.value.toUpperCase(), at: new Date().toISOString() }); } catch (err) {} }
+  if ((e.target.id === "brandColor" || e.target.id === "subColor") && db) { const two = e.target.id === "subColor";
+    try { await db.collection("karte_edits").doc(`${state.shop}__color${two ? "2" : ""}`).set({ shop: state.shop, type: two ? "color2" : "color", color: e.target.value.toUpperCase(), at: new Date().toISOString() }); toast("✓ 自動で保存しました"); } catch (err) {} }
   if (e.target.id === "lookSel" && db) { try { await db.collection("post_styles").doc(state.post).set({ look: e.target.value, at: new Date().toISOString() }); } catch (err) {} }
 });
 document.addEventListener("click", async e => {
-  if (e.target.closest("[data-clear-color]") && db) { try { await db.collection("karte_edits").doc(`${state.shop}__color`).set({ shop: state.shop, type: "color", color: "", at: new Date().toISOString() }); } catch (err) {} }
+  const cc = e.target.closest("[data-clear-color]");
+  if (cc && db) { const two = cc.dataset.clearColor === "subColor"; try { await db.collection("karte_edits").doc(`${state.shop}__color${two ? "2" : ""}`).set({ shop: state.shop, type: two ? "color2" : "color", color: "", at: new Date().toISOString() }); } catch (err) {} }
 });
 
 /* AIで投稿を作る */

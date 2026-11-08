@@ -963,7 +963,7 @@ function mainAssetsPanel(canEdit) {
   const items = libraryItems(null).filter(it => !pickSlot || pickSlot[2] === "any" || it.kind === pickSlot[2]);
   const tile = (it, slot) => `<div class="mat-slot"><div class="cast-th">${thumbOf({ ...it, kind: it.kind === "video" ? "video" : "image" })}</div>${canEdit ? `<button class="linkish" type="button" data-main-del="${slot}:${esc(it.id)}">外す</button>` : ""}</div>`;
   return `<section class="panel"><h2>主に使う素材</h2>
-    <p class="small muted" style="margin:0 0 10px">「AI自動作成」のときに使う素材です。キャラクターはいろんなポーズを入れておくと、フィルモが場面に合わせて使い分けます。</p>
+    <p class="small muted" style="margin:0 0 10px">サービスの雰囲気を作る主な素材。AI自動作成の時に使用します。</p>
     ${MAIN_SLOTS.map(([k, l, kind, multi]) => { const list = multi ? mainList(state.shop, k) : [mainItem(state.shop, k)].filter(Boolean), def = !multi && !list.length && state.shop === "yorozu";
       return `<div class="main-row"><b class="small">${l}</b><div class="main-list">${list.map(it => tile(it, k)).join("")}
         ${def ? `<div class="mat-slot"><div class="cast-th"><span>はじめからの分</span></div></div>` : ""}

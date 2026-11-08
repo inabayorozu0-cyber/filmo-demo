@@ -489,6 +489,12 @@ tr.click { cursor: pointer; }
 tr.click:hover td { background: var(--sunken); }
 
 /* 投稿予定 */
+.draft-scenes { display: flex; flex-direction: column; gap: 10px; }
+.draft-scene { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.draft-head { display: flex; justify-content: space-between; align-items: center; }
+.draft-scene label, #draftPanel > label { display: flex; flex-direction: column; gap: 4px; }
+.draft-scene textarea, #draftCap { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 6px 10px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); resize: vertical; }
+.draft-scene textarea:focus, #draftCap:focus { border-color: var(--accent); outline: none; }
 .week-nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; } .week-nav b { text-align: center; font-size: 14px; }
 .day-add { margin-top: auto; border: 1px dashed var(--line); background: none; border-radius: 8px; color: var(--accent); font-weight: 700; padding: 4px; cursor: pointer; }
 .sched-sheet input[type=date], .sched-sheet input[type=time], .sched-sheet select { border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); max-width: 100%; }
@@ -829,6 +835,7 @@ const working = new Set();   // カルテに入れている途中のチャット
   db.collection("anim_tuning").onSnapshot(s => { const d = s.docs.find(x => x.id === "app"); tuneDoc = d ? d.data() : null; renderSnap(); }, () => {});
   db.collection("brand_assets").onSnapshot(s => { brandAssets = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("post_styles").onSnapshot(s => { postStyles = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
+  db.collection("drafts").onSnapshot(s => { drafts = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("schedule").onSnapshot(s => { schedules = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("main_assets").onSnapshot(s => { mainAssets = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); renderSnap(); }, () => {});
   db.collection("reload_requests").onSnapshot(s => { reloads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
@@ -1152,6 +1159,55 @@ function fixBox(p) {
     <textarea id="gen-fix" rows="2" placeholder="例：1つ目の答えをもっと具体的に／最後の呼びかけをやわらかく／専門用語を使わないで">${esc(state.genFix || "")}</textarea>
     <small class="muted">書いたことに沿って、いま開いている1本を書き直した新しい1本を作ります（前の1本は残ります）。お店の情報にないことは書きません。新しい情報はサービス情報に入れてください。</small></label>`;
 }
+/* 構成の確認・微調整（2026-11-08 真由美さん A：構成を作成 → 確かめて直す → 動画を作成。失敗した動画が増えないように）
+   db の drafts（お店×テーマで1つ）{shop, theme, post: generatePost の結果}。場面は「見出し→補足→くわしく」を欄に分けて直せる。動画を作成で posts に入れて下書きは消す */
+let drafts = [];
+const draftOf = theme => drafts.find(d => d.id === `${state.shop}__${theme}`);
+const PART_LABEL = ["見出し", "補足", "くわしく"];
+function draftPanel(theme, canGen) {
+  const d = draftOf(theme); if (!d) return "";
+  const p = d.post, sc = p.scenes || [];
+  return `<section class="panel step" id="draftPanel"><h2><span class="num">4</span>構成を確認・微調整</h2>
+    <p class="step-help">動画の場面ごとの文字と、投稿文の下書きです。変なところは打ち直してください（打った分はそのまま残ります）。</p>
+    <div class="draft-scenes">${sc.map((x, i) => { const parts = x.split("→"), kind = i === 0 ? "タイトル" : i === sc.length - 1 ? "締め" : `場面${i + 1}`;
+      return `<div class="draft-scene"><div class="draft-head"><b>${kind}</b><span class="row-btns">
+          <button class="linkish" type="button" data-dmove="${i}:-1" ${i === 0 ? "disabled" : ""} aria-label="上へ">↑</button><button class="linkish" type="button" data-dmove="${i}:1" ${i === sc.length - 1 ? "disabled" : ""} aria-label="下へ">↓</button>
+          <button class="linkish" type="button" data-ddel="${i}" ${sc.length <= 2 ? "disabled" : ""}>消す</button></span></div>
+        ${parts.map((t, j) => `<label class="small">${PART_LABEL[j] || "くわしく"}<textarea rows="${j ? 2 : 1}" data-dpart="${i}:${j}" placeholder="ここに書いてください">${/^（ここに[^）]*）$/.test(t.trim()) ? "" : esc(t.trim())}</textarea></label>`).join("")}
+        ${parts.length < 3 ? `<button class="linkish" type="button" data-dpart-add="${i}">＋ ${PART_LABEL[parts.length]}を足す</button>` : ""}</div>`; }).join("")}
+      <button class="btn ghost small" type="button" data-dscene-add="1">＋ 場面を足す（締めの前に入ります）</button></div>
+    <label class="small"><b>投稿文</b>（インスタで動画の下に出る説明）<textarea id="draftCap" rows="10">${esc(p.caption || "")}</textarea></label>
+    ${p.prices && p.prices.length ? '<p class="small" style="margin:0;color:var(--price-ink)">料金の数字はサービス情報から入れています。料金を変えるときは、サービス情報の料金表で直してください。</p>' : ""}
+    <details class="small"><summary>全体がちがうときは、AIに作り直してもらう</summary>
+      <label class="fix-box"><b>直してほしいところ</b><textarea id="gen-fix" rows="2" placeholder="例：もっとやわらかい言い方で／1つ目の答えをもっと具体的に">${esc(state.genFix || "")}</textarea></label>
+      <button class="btn ghost" type="button" data-generate="1" data-plan="1" data-replan="1" ${canGen ? "" : "disabled"}>構成を作り直す</button></details>
+    <h2 style="margin-top:6px"><span class="num">5</span>動画を作成</h2>
+    <p class="step-help">この構成で動画を作ります。作った動画は「作成履歴」に入ります。</p>
+    <div class="row-btns"><button class="btn big-btn" type="button" data-draft-make="1" ${dbState === "on" ? "" : "disabled"}>動画を作成</button><button class="linkish" type="button" data-draft-drop="1">この構成を捨てる</button></div>
+  </section>`;
+}
+async function saveDraft(d) { if (!db) return; await db.collection("drafts").doc(d.id).set({ shop: d.shop, theme: d.theme, post: d.post, at: new Date().toISOString() }); }
+document.addEventListener("change", async e => {   // 打ったら保存（画面を切り替えても残る）
+  const t = e.target, d = draftOf(state.makeTheme || "faq"); if (!d) return;
+  if (t.dataset && t.dataset.dpart) { const [i, j] = t.dataset.dpart.split(":").map(Number), parts = d.post.scenes[i].split("→");
+    parts[j] = t.value.replace(/→/g, "").trim(); d.post.scenes[i] = parts.filter((x, k) => x || k === 0).join("→"); await saveDraft(d); return; }
+  if (t.id === "draftCap") { d.post.caption = t.value; await saveDraft(d); }
+});
+document.addEventListener("click", async e => {
+  const d = draftOf(state.makeTheme || "faq"); if (!d) return; const t = e.target, sc = d.post.scenes;
+  const mv = t.closest("[data-dmove]"); if (mv) { const [i, k] = mv.dataset.dmove.split(":").map(Number); [sc[i], sc[i + k]] = [sc[i + k], sc[i]]; await saveDraft(d); render(true); return; }
+  const dl = t.closest("[data-ddel]"); if (dl) { sc.splice(Number(dl.dataset.ddel), 1); await saveDraft(d); render(true); return; }
+  const pa = t.closest("[data-dpart-add]"); if (pa) { const i = Number(pa.dataset.dpartAdd); sc[i] = sc[i] + "→（ここに書く）"; await saveDraft(d); render(true); return; }
+  if (t.closest("[data-dscene-add]")) { sc.splice(Math.max(1, sc.length - 1), 0, "（ここに見出し）"); await saveDraft(d); render(true); return; }
+  if (t.closest("[data-draft-drop]")) { await db.collection("drafts").doc(d.id).delete(); drafts = drafts.filter(x => x.id !== d.id); state.genStatus = ""; toast("✓ 構成を捨てました"); render(true); return; }
+  if (t.closest("[data-draft-make]")) {
+    const post = { ...d.post, scenes: sc.map(x => x.replace(/（ここに[^）]*）/g, "").replace(/→+$/, "").trim()).filter(Boolean), at: new Date().toISOString() };
+    const ref = await db.collection("posts").add(post);
+    await db.collection("drafts").doc(d.id).delete(); drafts = drafts.filter(x => x.id !== d.id);
+    state.post = "g-" + ref.id; state.justMade = state.post; saveUi(); state.genStatus = "動画ができました。右で再生できます。";
+    toast("✓ 動画を作成しました"); render(true); window.scrollTo(0, 0);
+  }
+});
 /* いま作っている動画：かんたん⇔こだわりを切り替えても同じ1本を開いたままにする */
 function curBar(ofTheme, raw) {
   if (!raw) return "";
@@ -1231,13 +1287,14 @@ function viewEasy() {
         ${!useAnim && !p ? '<small class="muted">先に③で文章を作ると、写真・動画を場面ごとに入れられるようになります。</small>' : ""}
         ${!useAnim ? `<div id="easyMedia">${materialsPanel(p, "media")}</div>` : ""}
       </section>
-      <section class="panel step"><h2><span class="num">3</span>作成する</h2><p class="step-help">フィルモが、お店の情報から投稿文と動画を作ります。</p>
+      <section class="panel step"><h2><span class="num">3</span>構成を作成</h2><p class="step-help">フィルモが、お店の情報から動画の流れ（場面ごとの文字）と投稿文の下書きを作ります。確かめて直してから動画にします。</p>
         ${stale ? '<p class="small" style="margin:0;color:var(--price-ink)">サービス情報が新しくなっています。作り直すと、新しい情報で作ります。</p>' : ""}
         ${theme === "free" ? freeNeedBox() : ""}
-        ${fixBox(p)}
-        <button class="btn big-btn" type="button" data-generate="1" ${canGen ? "" : "disabled"}>${p ? genLabel() : "作ってもらう"}</button>
+        ${draftOf(theme) ? "" : fixBox(p)}
+        ${draftOf(theme) ? "" : `<button class="btn big-btn" type="button" data-generate="1" data-plan="1" ${canGen ? "" : "disabled"}>構成を作成</button>`}
         <span class="status small" id="genStatus">${esc(state.genBusy ? state.genStatus || "書いています…" : reason || state.genStatus || (sample ? "お店の情報だけで書きます。1〜2分かかります。" : "この画面ではAIが使えません。"))}</span>
       </section>
+      ${draftPanel(theme, canGen)}
     </div>
     <aside class="easy-side">
       ${p ? `<div class="phone">${useAnim ? animPanelEasy(p) : `<div class="small muted">写真・動画を上げたら、「自分で作成」でプレビューできます。</div>`}</div>
@@ -2969,11 +3026,20 @@ document.addEventListener("click", async e => {
   const theme = state.makeTheme || (shopPosts().find(x => x.id === state.post) || {}).theme || "faq";
   const opts = { faq: state.genFaq ?? "all", title: state.genTitle || "", service: state.genSvc || (K.services.find(x => x.active) || {}).id };
   const fix = (state.genFix || "").trim(), cur = shopPosts().find(x => x.id === state.post);
-  if (fix && cur && cur.theme === theme) { const pn = postNow(cur); opts.fix = fix; opts.prev = { id: cur.id, scenes: pn.scenes, caption: pn.caption }; }
+  const dr = e.target.closest("[data-replan]") ? draftOf(theme) : null;
+  if (dr) { if (fix) { opts.fix = fix; opts.prev = { id: "", scenes: dr.post.scenes, caption: dr.post.caption }; } }   // 構成を作り直す：今の下書きをもとに
+  else if (fix && cur && cur.theme === theme) { const pn = postNow(cur); opts.fix = fix; opts.prev = { id: cur.id, scenes: pn.scenes, caption: pn.caption }; }
   state.genBusy = true; state.genStatus = "書いています…"; render(true);
   const step = msg => { state.genStatus = msg; const el = $("#genStatus"); if (el) el.textContent = msg; };
   try {
     const post = await generatePost(shop, theme, opts, step);
+    if (e.target.closest("[data-plan]")) {   // AI自動作成：まず構成（下書き）。動画にするのは確かめてから
+      await db.collection("drafts").doc(`${shop}__${theme}`).set({ shop, theme, post, at: new Date().toISOString() });
+      drafts = drafts.filter(d => d.id !== `${shop}__${theme}`).concat([{ id: `${shop}__${theme}`, shop, theme, post }]);
+      state.makeTheme = theme; saveUi(); state.genStatus = "構成ができました。下で確かめて、直したいところを直してください。"; state.genFix = "";
+      setTimeout(() => { const el = $("#draftPanel"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 200);
+      return;
+    }
     const ref = await db.collection("posts").add(post);
     state.post = "g-" + ref.id; state.justMade = state.post; state.makeTheme = theme; saveUi();
     state.genStatus = `できました（書いた回数 ${post.attempts}回）。${opts.fix ? "直してほしいことを入れて書きました。" : ""}`; state.genFix = "";

@@ -320,7 +320,10 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .mat-opts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; }
 .mat-sheet textarea { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
 .row-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.main-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px dashed var(--line); }
+.main-list { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; } .main-list .cast-th { width: 64px; height: 84px; }
 .main-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 520px) { .main-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); } .main-slots .cast-th { width: 72px; height: 96px; margin: 0 auto; } }
 .color-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; flex-wrap: wrap; } .color-row > div { display: flex; flex-direction: column; flex: 1; min-width: 140px; }
 .color-chip { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); flex: none; }
 .step-help { margin: -4px 0 10px; font-size: 13px; color: var(--muted); }
@@ -931,34 +934,49 @@ document.addEventListener("click", async e => {
   await db.collection("reload_requests").add({ shop: state.shop, sources: list, at });
   toast("✓ 読み込み直しを受け付けました。新しい内容をサービス情報に入れます");
 });
-/* 主に使う素材（2026-11-08 真由美さん：オープニング・エンディング・キャラクター・決まった壁紙）。db の main_assets（お店ごとに1つ） */
-const MAIN_SLOTS = [["op", "オープニング", "video"], ["ed", "エンディング", "video"], ["chara", "キャラクター", "image"], ["bg", "壁紙（背景）", "image"]];
-const mainOf = shop => mainAssets[shop] || {};
-const mainItem = (shop, slot) => { const id = mainOf(shop)[slot]; return id ? assetsFor(shop).find(a => a.id === id && !a.off) || null : null; };
-function opEdSrc(shop) {   // オープニング・エンディングの動画：主に使う素材 → YOROZU のはじめからの分
-  const op = mainItem(shop, "op"), ed = mainItem(shop, "ed"), yz = shop === "yorozu";
-  return { op: op ? op.src : yz ? "anim/op.mp4" : "", ed: ed ? ed.src : yz ? "anim/ed.mp4" : "" };
+/* 主に使う素材（2026-11-08 真由美さん）：AI自動作成のために置いておく素材。オープニング・エンディングは1つずつ、キャラクター（いろんなポーズ）と壁紙は何枚でも。
+   AI自動作成ではここから場面に合うものを使う（キャラクターはタイトル・本文・締めで使い分け、壁紙は動画ごとに変える）。自分で作成では自由に選ぶ。db の main_assets（お店ごとに1つ） */
+const MAIN_SLOTS = [["op", "オープニング", "video", false], ["ed", "エンディング", "video", false], ["charas", "キャラクター（ポーズはいくつでも）", "image", true], ["bgs", "壁紙（背景・何枚でも）", "image", true]];
+const mainOf = shop => { const m = mainAssets[shop] || {};
+  return { ...m, charas: m.charas || (m.chara ? [m.chara] : []), bgs: m.bgs || (m.bg ? [m.bg] : []) }; };
+const assetById = (shop, id) => assetsFor(shop).find(a => a.id === id && !a.off) || null;
+const mainItem = (shop, slot) => { const id = mainOf(shop)[slot]; return id ? assetById(shop, id) : null; };
+const mainList = (shop, slot) => (mainOf(shop)[slot] || []).map(id => assetById(shop, id)).filter(Boolean);
+let mainOvNow = {}, castPostId = "";
+const ovOf = () => ({});   // （その動画だけ変える欄はやめた。自分で作成は場面ごとの絵で選ぶ）
+function opEdSrc(shop) {   // オープニング・エンディングの動画：主に使う素材 → YOROZU のはじめからの分。つけるかどうかは opEdOf（テーマで決めて、あとから選べる）
+  const yz = shop === "yorozu", pick = slot => { const a = mainItem(shop, slot); return a ? a.src : yz ? `anim/${slot}.mp4` : ""; };
+  return { op: pick("op"), ed: pick("ed") };
 }
+const hashOf = t => [...String(t)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 function mainAssetsPanel(canEdit) {
-  const pickSlot = MAIN_SLOTS.find(x => x[0] === state.mainPick);
+  const pickSlot = MAIN_SLOTS.find(x => x[0] === state.mainPick), m = mainOf(state.shop);
+  const chosen = pickSlot ? (pickSlot[3] ? m[pickSlot[0]] : [m[pickSlot[0]]].filter(Boolean)) : [];
   const items = libraryItems(null).filter(it => !pickSlot || it.kind === pickSlot[2]);
+  const tile = (it, slot) => `<div class="mat-slot"><div class="cast-th">${thumbOf({ ...it, kind: it.kind === "video" ? "video" : "image" })}</div>${canEdit ? `<button class="linkish" type="button" data-main-del="${slot}:${esc(it.id)}">外す</button>` : ""}</div>`;
   return `<section class="panel"><h2>主に使う素材</h2>
-    <p class="small muted" style="margin:0 0 10px">いつも使う素材を決めておくと、動画を作るときに自動で使います（動画ごとに変えることもできます）。</p>
-    <div class="main-slots">${MAIN_SLOTS.map(([k, l, kind]) => { const it = mainItem(state.shop, k), def = (k === "op" || k === "ed") && state.shop === "yorozu" && !it;
-      return `<div class="mat-slot"><button type="button" class="cast-th mat-th" data-main-pick="${k}" aria-pressed="${state.mainPick === k}" ${canEdit ? "" : "disabled"}>${it ? thumbOf({ ...it, kind: it.kind === "video" ? "video" : "image" }) : `<span>${def ? "はじめからの分" : "＋ 選ぶ"}</span>`}</button><small>${l}</small>
-        ${it && canEdit ? `<button class="linkish" type="button" data-main-clear="${k}">外す</button>` : ""}</div>`; }).join("")}</div>
-    ${pickSlot ? `<div class="mat-sheet"><b>${pickSlot[1]}にする素材を選ぶ</b><small class="muted">${pickSlot[2] === "video" ? "動画（MP4）が選べます" : "写真・イラストが選べます"}</small>
-      <div class="mat-grid">${items.map(it => `<button type="button" class="cast-th mat-th" data-main-set="${esc(it.id)}">${thumbOf(it)}</button>`).join("")}
-        ${canEdit && assets ? `<label class="cast-th mat-add"><span>＋<br>上げる</span><input type="file" accept="${pickSlot[2] === "video" ? "video/mp4,video/webm" : "image/*"}" data-mat-upload="1" hidden></label>` : ""}</div>
-      <small class="muted" id="matStatus"></small><div class="row-btns"><button class="btn ghost" type="button" data-main-pick="">やめる</button></div></div>` : ""}
+    <p class="small muted" style="margin:0 0 10px">「AI自動作成」のときに使う素材です。キャラクターはいろんなポーズを入れておくと、フィルモが場面に合わせて使い分けます。</p>
+    ${MAIN_SLOTS.map(([k, l, kind, multi]) => { const list = multi ? mainList(state.shop, k) : [mainItem(state.shop, k)].filter(Boolean), def = !multi && !list.length && state.shop === "yorozu";
+      return `<div class="main-row"><b class="small">${l}</b><div class="main-list">${list.map(it => tile(it, k)).join("")}
+        ${def ? `<div class="mat-slot"><div class="cast-th"><span>はじめからの分</span></div></div>` : ""}
+        ${canEdit && (multi || !list.length) ? `<button type="button" class="cast-th mat-add" data-main-pick="${k}" aria-pressed="${state.mainPick === k}"><span>＋<br>${multi ? "足す" : "選ぶ"}</span></button>` : canEdit ? `<button class="linkish" type="button" data-main-pick="${k}">変える</button>` : ""}</div></div>`; }).join("")}
+    ${pickSlot ? `<div class="mat-sheet"><b>${pickSlot[1].replace(/（.*）/, "")}に${pickSlot[3] ? "入れる素材を選ぶ（いくつでも）" : "する素材を選ぶ"}</b><small class="muted">${pickSlot[2] === "video" ? "動画（MP4）が選べます" : "写真・イラストが選べます"}</small>
+      <div class="mat-grid">${items.map(it => `<button type="button" class="cast-th mat-th" data-main-set="${esc(it.id)}" aria-pressed="${chosen.includes(it.id)}">${thumbOf(it)}</button>`).join("")}
+        ${canEdit && assets ? `<label class="cast-th mat-add"><span>＋<br>この端末から</span><input type="file" accept="${pickSlot[2] === "video" ? "video/mp4,video/webm" : "image/*"}" multiple data-mat-upload="1" hidden></label>` : ""}</div>
+      <small class="muted" id="matStatus"></small><div class="row-btns"><button class="btn ghost" type="button" data-main-pick="">${pickSlot[3] ? "できた" : "やめる"}</button></div></div>` : ""}
   </section>`;
 }
+async function saveMain(cur) { const { id, chara, bg, ...keep } = cur; await db.collection("main_assets").doc(state.shop).set({ ...keep, at: new Date().toISOString() }); toast("✓ 自動で保存しました"); }
 document.addEventListener("click", async e => {
   const pk = e.target.closest("[data-main-pick]"); if (pk) { state.mainPick = state.mainPick === pk.dataset.mainPick ? "" : pk.dataset.mainPick; render(true); return; }
-  const st = e.target.closest("[data-main-set]"), cl = e.target.closest("[data-main-clear]");
-  if ((st || cl) && db) { const cur = { ...mainOf(state.shop) }, slot = cl ? cl.dataset.mainClear : state.mainPick;
-    if (st) cur[slot] = st.dataset.mainSet; else delete cur[slot];
-    const { id, ...keep } = cur; await db.collection("main_assets").doc(state.shop).set({ ...keep, at: new Date().toISOString() }); state.mainPick = ""; toast("✓ 自動で保存しました"); }
+  if (!db) return;
+  const st = e.target.closest("[data-main-set]");
+  if (st) { const slot = state.mainPick, def = MAIN_SLOTS.find(x => x[0] === slot), cur = mainOf(state.shop), id = st.dataset.mainSet;
+    if (def[3]) { const l = cur[slot]; cur[slot] = l.includes(id) ? l.filter(x => x !== id) : [...l, id]; await saveMain(cur); return; }   // いくつでも：押すたびに入れる・外す
+    cur[slot] = id; state.mainPick = ""; await saveMain(cur); return; }
+  const dl = e.target.closest("[data-main-del]");
+  if (dl) { const i = dl.dataset.mainDel.indexOf(":"), slot = dl.dataset.mainDel.slice(0, i), id = dl.dataset.mainDel.slice(i + 1), cur = mainOf(state.shop);
+    if (Array.isArray(cur[slot])) cur[slot] = cur[slot].filter(x => x !== id); else delete cur[slot]; await saveMain(cur); }
 });
 const HIDE_ITEMS = ["出していい話"];   // 2026-11-08 真由美さん：サイトに出している話は全部出していいので、項目はいらない
 const SHOW_LABEL = { "言わないこと": "投稿NGなこと", "自由に作るで入れたこと": "自分で作成で得た情報" };   // 見せる名前（中のデータの名前はそのまま）
@@ -2177,7 +2195,10 @@ const pickAsset = (shop, kind, scene, n = 0) => {
   const key = kind === "bg" ? "bg" : scene, ov = castNow[key];
   if (ov === "none") return null;
   if (ov) { const a = assetsFor(shop).find(x => x.id === ov); if (a) return a; }
-  const main = mainItem(shop, kind === "bg" ? "bg" : "chara"); if (main) return main;   // 主に使う素材
+  // 主に使う素材：キャラクターは場面で使い分け（タイトル＝1枚目・締め＝最後・本文は順に）、壁紙は動画ごとに変える
+  if (kind === "bg") { const bgs = mainList(shop, "bgs"); if (bgs.length) return bgs[hashOf(castPostId) % bgs.length]; }
+  else { const cs = mainList(shop, "charas");
+    if (cs.length) return scene === "title" ? cs[0] : scene === "end" ? cs[cs.length - 1] : cs.length > 2 ? cs[1 + (n % (cs.length - 2))] : cs[(1 + n) % cs.length]; }
   const xs = assetsFor(shop).filter(a => !a.off && a.kind === kind && (a.scenes || []).includes(scene)); return xs.length ? xs[n % xs.length] : null; };
 async function saveAsset(id, patch) {
   if (!db) return;
@@ -2222,7 +2243,7 @@ function animMarkup(p, shopName, yz) {
   const tl = animTimeline(p.scenes, p.durations || styleOf(p.id).durations || {}), qaTotal = tl.filter(x => x.kind === "qa").length;   // 「→」のある場面：質問はQ番号つき、ほかは見出し＋補足のカード
   // 改行は、お店が入れた改行（\n）を優先。入れていない行だけ自然なところで折り返す
   const lines = (t, n) => t.split("\n").map(l => wrapJp(l.trim(), n)).join("\n").split("\n").map(esc).join("<br>");
-  castNow = styleOf(p.id).cast || {};
+  castNow = styleOf(p.id).cast || {}; castPostId = p.id;
   const shop = state.shop, bgOf = sc => pickAsset(shop, "bg", sc);
   const img = (a, cls, style, attrs = "") => a ? `<img class="${cls}" src="${esc(a.src)}"${attrs} style="${style}" alt="">` : "";
   const wash = (k, sc = "qa") => bgOf(sc) ? `<div class="an-paint" style="background-image:url('${bgOf(sc).src}');background-position:${["8%", "52%", "92%", "30%"][k % 4]} 50%"></div>`
@@ -2623,9 +2644,9 @@ function materialsPanel(p, mode) {
   const byId = id => items.find(x => x.id === id) || assetsFor(state.shop).find(x => x.id === id);
   const f = p ? GUIDE.formats.find(x => x.themes.includes(p.theme)) : null;
   const pick = items.find(x => x.id === state.matPick);
-  const used = p && mode === "anim" ? `<div class="mat-used"><span class="small"><b>この動画で使っている絵</b>（何も決めていないところは、フィルモがおまかせで選びます）</span>
+  const used = p && mode === "anim" ? `<div class="mat-used"><span class="small"><b>この動画で使っている絵</b>（決めていないところは、主に使う素材からフィルモが選びます）</span>
       <div class="mat-used-row">${Object.entries(PLACE).map(([k, l]) => { const v = cast[k], it = v && v !== "none" ? byId(v) : null;
-        return `<div class="mat-slot"><div class="cast-th">${it ? thumbOf(it) : `<span>${v === "none" ? "なし" : "おまかせ"}</span>`}</div><small>${l}</small>${v ? `<button class="linkish" type="button" data-mat-reset="${k}">おまかせに戻す</button>` : ""}${notes[k] ? `<small class="muted">「${esc(notes[k])}」</small>` : ""}</div>`; }).join("")}</div></div>` : "";
+        return `<div class="mat-slot"><div class="cast-th">${it ? thumbOf(it) : `<span>${v === "none" ? "使わない" : "おまかせ"}</span>`}</div><small>${l}</small>${v ? `<button class="linkish" type="button" data-mat-reset="${k}">おまかせに戻す</button>` : `<button class="linkish" type="button" data-mat-none="${k}">使わない</button>`}${notes[k] ? `<small class="muted">「${esc(notes[k])}」</small>` : ""}</div>`; }).join("")}</div></div>` : "";
   const sheet = pick ? `<div class="mat-sheet"><div class="mat-sheet-head"><div class="cast-th">${thumbOf(pick)}</div><b>この素材の使い方を決める</b></div>
       ${!p ? '<p class="small muted" style="margin:0">先に③で作ると、この動画のどこに使うかを決められます。</p>' : `
       <div class="small"><b>何として使う？</b><div class="mat-opts">${[["chara", "キャラクター・イラスト", pick.kind !== "video"], ["bg", "背景（壁紙）", pick.kind !== "video"], ["shot", "写真・動画として場面に", !!(pick.asset && f)]].filter(x => x[2]).map(([k, l], i) => `<label><input type="radio" name="matAs" value="${k}" ${i === 0 ? "checked" : ""}> ${l}</label>`).join("")}</div></div>
@@ -2635,14 +2656,17 @@ function materialsPanel(p, mode) {
       <div class="row-btns"><button class="btn" type="button" data-mat-use="1" ${can ? "" : "disabled"}>この使い方で決める</button>`}
       ${p ? "" : '<div class="row-btns">'}<button class="btn ghost" type="button" data-mat-pick="">やめる</button>${can && !pick.id.startsWith("m:") && !String(pick.id).includes("__d") ? `<button class="linkish" type="button" data-mat-remove="${pick.id}">一覧から外す</button>` : ""}</div></div>` : "";
   return `<div class="mat-panel">${used}
-    <div class="small"><b>素材一覧</b>（押すと、どこに・何として・どう使うかを決められます）</div>
-    <div class="mat-grid">${items.map(it => `<button type="button" class="cast-th mat-th" data-mat-pick="${esc(it.id)}" aria-pressed="${it.id === state.matPick}">${thumbOf(it)}</button>`).join("")}
-      ${can && assets ? `<label class="cast-th mat-add" title="素材を上げる"><span>＋<br>上げる</span><input type="file" accept="image/*,video/mp4,video/webm" multiple data-mat-upload="1" hidden></label>` : ""}</div>
+    <div class="small">素材を押すと、どこに・何として・どう使うかを決められます。</div>
+    ${(() => { const m = mainOf(state.shop), mainIds = new Set([m.op, m.ed, ...m.charas, ...m.bgs].filter(Boolean)), btn = it => `<button type="button" class="cast-th mat-th" data-mat-pick="${esc(it.id)}" aria-pressed="${it.id === state.matPick}">${thumbOf(it)}</button>`;
+      const mains = items.filter(it => mainIds.has(it.id)), others = items.filter(it => !mainIds.has(it.id));
+      return (mains.length ? `<div class="small"><b>主に使う素材</b></div><div class="mat-grid">${mains.map(btn).join("")}</div>` : "") + `<div class="small"><b>素材一覧</b></div><div class="mat-grid">${others.map(btn).join("")}`; })()}
+      ${can && assets ? `<label class="cast-th mat-add" title="素材を上げる"><span>＋<br>この端末から</span><input type="file" accept="image/*,video/mp4,video/webm" multiple data-mat-upload="1" hidden></label>` : ""}</div>
     ${sheet}
     <small class="muted" id="matStatus">写真・イラスト・壁紙・動画、なんでも上げておけます。上げるときは何も決めなくてOK。</small></div>`;
 }
 document.addEventListener("click", async e => {
   const pk = e.target.closest("[data-mat-pick]"); if (pk) { state.matPick = state.matPick === pk.dataset.matPick ? "" : pk.dataset.matPick; render(true); return; }
+  const nn = e.target.closest("[data-mat-none]"); if (nn && state.post) { const st = styleOf(state.post); await saveStyle({ cast: { ...(st.cast || {}), [nn.dataset.matNone]: "none" } }); return; }
   const rs = e.target.closest("[data-mat-reset]"); if (rs && state.post) { const st = styleOf(state.post), c = { ...(st.cast || {}) }, n = { ...(st.castNotes || {}) }; delete c[rs.dataset.matReset]; delete n[rs.dataset.matReset]; await saveStyle({ cast: c, castNotes: n }); return; }
   const rm = e.target.closest("[data-mat-remove]"); if (rm) { await saveAsset(rm.dataset.matRemove, { off: true }); state.matPick = ""; render(true); return; }
   if (!e.target.closest("[data-mat-use]") || !state.post) return;

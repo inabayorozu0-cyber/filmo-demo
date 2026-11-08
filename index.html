@@ -308,6 +308,18 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .kitems { margin: 2px 0 0; padding-left: 20px; line-height: 1.7; overflow-wrap: anywhere; } .kitems li + li { margin-top: 4px; }
 .kcard textarea, .kcard input[type=text] { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
 .kcard label { display: flex; flex-direction: column; gap: 4px; }
+.mat-panel { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+.mat-th { width: 100%; height: auto; aspect-ratio: 3 / 4; }
+.mat-th[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.mat-add { cursor: pointer; text-align: center; line-height: 1.3; color: var(--accent); font-weight: 700; border-style: dashed; }
+.mat-used-row { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; }
+.mat-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 70px; text-align: center; }
+.mat-sheet { border: 2px solid var(--accent); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface); }
+.mat-sheet-head { display: flex; align-items: center; gap: 10px; }
+.mat-opts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; }
+.mat-sheet textarea { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
+.row-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .step-help { margin: -4px 0 10px; font-size: 13px; color: var(--muted); }
 .sub-panel { border: 1px dashed var(--line); border-radius: 14px; padding: 12px; margin-top: 12px; }
 .sub-panel h2 { font-size: 15px; margin: 0 0 6px; }
@@ -1082,7 +1094,7 @@ function viewEasy() {
           <button type="button" class="card" data-easy-anim="1" aria-pressed="${useAnim}"><b>アニメーションのみで作成</b><small>写真なしで、絵と文字が動く動画にします</small></button>
           <button type="button" class="card" data-easy-anim="0" aria-pressed="${!useAnim}"><b>写真・動画を選ぶ</b><small>スマホの写真・動画や、お店の絵・背景を使います</small></button>
         </div>
-        ${useAnim && p ? castPanel(animPost(p), false) : ""}
+        ${useAnim ? materialsPanel(p ? animPost(p) : null, "anim") : ""}
         ${!useAnim && p && f && assets ? `<label class="btn ghost" style="cursor:pointer">写真・動画をまとめて選ぶ（${f.shots.length}枚まで）<input type="file" accept="image/*,video/*" multiple data-easy-upload="${f.id}" hidden></label>
           <small class="muted" id="easyUp">上げた順に、動画の場面に入ります。何を撮ればいいかは「自分で作成」の撮り方ガイドにあります。上げた枚数：${mediaFor(p.id, f.id).length}／${f.shots.length}</small>
           <div class="easy-slots">${f.shots.map((sh, i) => { const m = mediaFor(p.id, f.id).find(x => x.shot === i), d = slotDoc(p.id, f.id, i);
@@ -1091,7 +1103,7 @@ function viewEasy() {
               ${d && (d.hist || []).length ? `<button class="linkish" type="button" data-slot-undo="${f.id}:${i}">戻す</button>` : ""}</div>`; }).join("")}</div>
           ${state.libSlot && state.libSlot.startsWith(f.id + ":") ? libPicker(p.id, state.libSlot) : ""}` : ""}
         ${!useAnim && !p ? '<small class="muted">先に③で文章を作ると、写真・動画を場面ごとに入れられるようになります。</small>' : ""}
-        ${!useAnim ? `<div id="easyMedia">${assetsPanel(dbState === "on", true)}</div>` : ""}
+        ${!useAnim ? `<div id="easyMedia">${materialsPanel(p, "media")}</div>` : ""}
       </section>
       <section class="panel step"><h2><span class="num">3</span>作成する</h2><p class="step-help">フィルモが、お店の情報から投稿文と動画を作ります。</p>
         ${stale ? '<p class="small" style="margin:0;color:var(--price-ink)">サービス情報が新しくなっています。作り直すと、新しい情報で作ります。</p>' : ""}
@@ -2557,6 +2569,80 @@ async function remakeScenes(p) {   // 前の作り方の投稿：投稿文から
   await saveStyle({ animScenes: w.scenes, textsrc: "ai" });
 }
 
+/* 素材一覧（2026-11-08 真由美さん：上げた素材は一覧にしてシンプルに。使うときに「どこに・何として・どう使うか」を決める）
+   一覧＝お店の絵・背景（はじめから入っている分も）＋上げた写真・動画。上げるときは何も決めない。
+   使うとき：押す → 何として（キャラクター／背景／写真・動画として場面に）・どこに（タイトル・本文・締め／場面○）・どう使う（メモ）を決める。
+   決めたことはその動画だけ（post_styles の cast・castNotes、写真の場面は media）。メモは本番でAIが置き方・動きを選ぶ参考にする */
+function libraryItems(postId) {
+  const out = [], seen = new Set();
+  for (const a of assetsFor(state.shop)) { if (a.off) continue; out.push({ id: a.id, src: a.src, asset: a.asset || "", kind: a.kind === "video" ? "video" : "image" }); if (a.asset) seen.add(a.asset); }
+  for (const x of postId ? libFor(postId) : []) if (!seen.has(x.asset)) { seen.add(x.asset); out.push({ id: "m:" + x.asset, src: "/_blob/" + x.asset, asset: x.asset, kind: x.kind === "video" ? "video" : "image" }); }
+  return out;
+}
+const thumbOf = it => it.kind === "video" ? `<video src="${esc(it.src)}" muted playsinline preload="metadata"></video>` : `<img src="${esc(it.src)}" alt="" loading="lazy">`;
+const PLACE = { title: "タイトル", qa: "本文", end: "締め", bg: "背景（全部の場面）" };
+function materialsPanel(p, mode) {
+  const items = libraryItems(p && p.id), st = p ? styleOf(p.id) : {}, cast = st.cast || {}, notes = st.castNotes || {}, can = dbState === "on";
+  const byId = id => items.find(x => x.id === id) || assetsFor(state.shop).find(x => x.id === id);
+  const f = p ? GUIDE.formats.find(x => x.themes.includes(p.theme)) : null;
+  const pick = items.find(x => x.id === state.matPick);
+  const used = p && mode === "anim" ? `<div class="mat-used"><span class="small"><b>この動画で使っている絵</b>（何も決めていないところは、フィルモがおまかせで選びます）</span>
+      <div class="mat-used-row">${Object.entries(PLACE).map(([k, l]) => { const v = cast[k], it = v && v !== "none" ? byId(v) : null;
+        return `<div class="mat-slot"><div class="cast-th">${it ? thumbOf(it) : `<span>${v === "none" ? "なし" : "おまかせ"}</span>`}</div><small>${l}</small>${v ? `<button class="linkish" type="button" data-mat-reset="${k}">おまかせに戻す</button>` : ""}${notes[k] ? `<small class="muted">「${esc(notes[k])}」</small>` : ""}</div>`; }).join("")}</div></div>` : "";
+  const sheet = pick ? `<div class="mat-sheet"><div class="mat-sheet-head"><div class="cast-th">${thumbOf(pick)}</div><b>この素材の使い方を決める</b></div>
+      ${!p ? '<p class="small muted" style="margin:0">先に③で作ると、この動画のどこに使うかを決められます。</p>' : `
+      <div class="small"><b>何として使う？</b><div class="mat-opts">${[["chara", "キャラクター・イラスト", pick.kind !== "video"], ["bg", "背景（壁紙）", pick.kind !== "video"], ["shot", "写真・動画として場面に", !!(pick.asset && f)]].filter(x => x[2]).map(([k, l], i) => `<label><input type="radio" name="matAs" value="${k}" ${i === 0 ? "checked" : ""}> ${l}</label>`).join("")}</div></div>
+      <div class="small mat-where" data-for="chara" ${pick.kind === "video" ? "hidden" : ""}><b>どこに使う？</b><div class="mat-opts">${["title", "qa", "end"].map(k => `<label><input type="checkbox" name="matWhere" value="${k}" ${k === "title" ? "checked" : ""}> ${PLACE[k]}</label>`).join("")}</div></div>
+      ${f ? `<div class="small mat-where" data-for="shot" ${pick.kind === "video" ? "" : "hidden"}><b>どの場面に入れる？</b><div class="mat-opts">${f.shots.map((sh, i) => `<label><input type="radio" name="matShot" value="${i}" ${i === 0 ? "checked" : ""}> 場面${i + 1}（${esc(sh.what.slice(0, 14))}${sh.what.length > 14 ? "…" : ""}）</label>`).join("")}</div></div>` : ""}
+      <label class="small"><b>どう使う？</b>（なくてもOK）<textarea id="matNote" rows="2" placeholder="例：右下に大きく／走ってきて止まる感じで／うすく透かして"></textarea></label>
+      <div class="row-btns"><button class="btn" type="button" data-mat-use="1" ${can ? "" : "disabled"}>この使い方で決める</button>`}
+      ${p ? "" : '<div class="row-btns">'}<button class="btn ghost" type="button" data-mat-pick="">やめる</button>${can && !pick.id.startsWith("m:") && !String(pick.id).includes("__d") ? `<button class="linkish" type="button" data-mat-remove="${pick.id}">一覧から外す</button>` : ""}</div></div>` : "";
+  return `<div class="mat-panel">${used}
+    <div class="small"><b>素材一覧</b>（押すと、どこに・何として・どう使うかを決められます）</div>
+    <div class="mat-grid">${items.map(it => `<button type="button" class="cast-th mat-th" data-mat-pick="${esc(it.id)}" aria-pressed="${it.id === state.matPick}">${thumbOf(it)}</button>`).join("")}
+      ${can && assets ? `<label class="cast-th mat-add" title="素材を上げる"><span>＋<br>上げる</span><input type="file" accept="image/*,video/mp4,video/webm" multiple data-mat-upload="1" hidden></label>` : ""}</div>
+    ${sheet}
+    <small class="muted" id="matStatus">写真・イラスト・壁紙・動画、なんでも上げておけます。上げるときは何も決めなくてOK。</small></div>`;
+}
+document.addEventListener("click", async e => {
+  const pk = e.target.closest("[data-mat-pick]"); if (pk) { state.matPick = state.matPick === pk.dataset.matPick ? "" : pk.dataset.matPick; render(true); return; }
+  const rs = e.target.closest("[data-mat-reset]"); if (rs && state.post) { const st = styleOf(state.post), c = { ...(st.cast || {}) }, n = { ...(st.castNotes || {}) }; delete c[rs.dataset.matReset]; delete n[rs.dataset.matReset]; await saveStyle({ cast: c, castNotes: n }); return; }
+  const rm = e.target.closest("[data-mat-remove]"); if (rm) { await saveAsset(rm.dataset.matRemove, { off: true }); state.matPick = ""; render(true); return; }
+  if (!e.target.closest("[data-mat-use]") || !state.post) return;
+  const it = libraryItems(state.post).find(x => x.id === state.matPick); if (!it) return;
+  const as = ($('input[name="matAs"]:checked') || {}).value, note = ($("#matNote") || {}).value?.trim() || "";
+  const st = styleOf(state.post), cast = { ...(st.cast || {}) }, notes = { ...(st.castNotes || {}) };
+  if (as === "shot") {
+    const f = GUIDE.formats.find(x => x.themes.includes((shopPosts().find(q => q.id === state.post) || {}).theme)), shot = Number(($('input[name="matShot"]:checked') || {}).value || 0);
+    await setSlot(state.post, f.id, shot, { asset: it.asset, kind: it.kind });
+    await saveStyle({ mode: "media", ...(note ? { shotNotes: { ...(st.shotNotes || {}), [shot]: note } } : {}) });
+    toast(`✓ 場面${shot + 1}に入れました`);
+  } else {
+    let id = it.id;
+    if (id.startsWith("m:")) {   // 写真の一覧から来た画像は、お店の絵としても残す
+      id = `${state.shop}__u${Date.now()}`; await db.collection("brand_assets").doc(id).set({ shop: state.shop, asset: it.asset, kind: "image", scenes: [], note: "", at: new Date().toISOString() });
+    }
+    const where = as === "bg" ? ["bg"] : [...document.querySelectorAll('input[name="matWhere"]:checked')].map(x => x.value);
+    if (!where.length) { toast("どこに使うかを1つ以上選んでください"); return; }
+    where.forEach(k => { cast[k] = id; if (note) notes[k] = note; else delete notes[k]; });
+    await saveStyle({ cast, castNotes: notes, mode: "anim" });
+  }
+  state.matPick = ""; render(true);
+});
+document.addEventListener("change", async e => {
+  const t = e.target;
+  if (t.name === "matAs") { document.querySelectorAll(".mat-where").forEach(w => w.hidden = w.dataset.for !== t.value); return; }
+  if (!t.dataset || !t.dataset.matUpload || !t.files.length || !assets || !db) return;
+  const st = $("#matStatus"), files = [...t.files];
+  for (let i = 0; i < files.length; i++) {
+    if (st) st.textContent = `上げています…（${i + 1}／${files.length}）`;
+    try { if (files[i].size > 20 * 1024 * 1024) throw { code: "too_large" };
+      const r = await assets.upload(files[i]);
+      await db.collection("brand_assets").doc(`${state.shop}__u${Date.now()}${i}`).set({ shop: state.shop, asset: r.id, kind: r.contentType.startsWith("video") ? "video" : "image", scenes: [], note: "", at: new Date().toISOString() });
+    } catch (err) { if (st) st.textContent = "上げられないファイルがありました（写真はJPEG・PNG、動画はMP4。20MBまで）"; }
+  }
+  toast("✓ 素材一覧に入れました");
+});
 function castPanel(p, open) {
   const xs = assetsFor(state.shop), cast = styleOf(p.id).cast || {}, can = dbState === "on";
   const th = (slot, val, label, src, on) => `<button type="button" class="cast-th" data-cast="${slot}:${val}" aria-pressed="${on}" ${can ? "" : "disabled"} title="${esc(label)}">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : `<span>${label}</span>`}</button>`;
@@ -2589,7 +2675,7 @@ function animPanel(p) {
     <div class="ved-row small"><span>動画の文字</span>${dbState === "on" ? `<select id="textSrc"><option value="ai" ${(styleOf(p.id).textsrc || "ai") === "ai" ? "selected" : ""}>おまかせ（いいところを選ぶ）</option><option value="caption" ${styleOf(p.id).textsrc === "caption" ? "selected" : ""}>投稿文ほぼそのまま</option></select>` : ""}<small class="muted">${p.edited ? "手で直した文字を使っています" : `${p.scenes.length}場面・投稿文の${Math.round(coverage(p) * 100)}%`}</small></div>
     ${!p.edited && (styleOf(p.id).textsrc || "ai") === "ai" && coverage(p) < 0.35 && sample && dbState === "on" ? `<div class="ved-row small" style="background:var(--price-bg);color:var(--price-ink);border-radius:8px;padding:6px 8px">動画の文字が少なめです（投稿文の${Math.round(coverage(p) * 100)}%）。<button class="btn ghost small-btn" type="button" data-remake="1">いいところを多めに入れて作り直す</button><span id="remakeStatus"></span></div>` : ""}
     <p class="small muted" style="margin:0">ここの設定（文字・音楽・ナレーション・OP・ED）は、変えるとすぐ自動で保存されます。</p>
-    ${castPanel(p, true)}
+    <details class="cast" open><summary><b>素材（絵・背景・写真）</b> <span class="small muted">（この動画だけ）</span></summary>${materialsPanel(p, "anim")}</details>
     ${soundPanel(p)}
     <button class="btn" type="button" data-ved-open="1">画面を見ながら直す（文字・大きさ・位置）</button>
     ${tunePanel()}`;

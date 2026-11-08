@@ -489,6 +489,10 @@ tr.click { cursor: pointer; }
 tr.click:hover td { background: var(--sunken); }
 
 /* 投稿予定 */
+.week-nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; } .week-nav b { text-align: center; font-size: 14px; }
+.day-add { margin-top: auto; border: 1px dashed var(--line); background: none; border-radius: 8px; color: var(--accent); font-weight: 700; padding: 4px; cursor: pointer; }
+.sched-sheet input[type=date], .sched-sheet input[type=time], .sched-sheet select { border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); max-width: 100%; }
+.sched-sheet label { display: flex; flex-direction: column; gap: 4px; }
 .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
 .day { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-height: 120px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .day header { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -825,6 +829,7 @@ const working = new Set();   // カルテに入れている途中のチャット
   db.collection("anim_tuning").onSnapshot(s => { const d = s.docs.find(x => x.id === "app"); tuneDoc = d ? d.data() : null; renderSnap(); }, () => {});
   db.collection("brand_assets").onSnapshot(s => { brandAssets = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("post_styles").onSnapshot(s => { postStyles = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
+  db.collection("schedule").onSnapshot(s => { schedules = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("main_assets").onSnapshot(s => { mainAssets = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); renderSnap(); }, () => {});
   db.collection("reload_requests").onSnapshot(s => { reloads = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
   db.collection("post_hidden").onSnapshot(s => { hiddenPosts = s.docs.map(d => ({ id: d.id, ...d.data() })); renderSnap(); }, () => {});
@@ -1074,27 +1079,66 @@ function viewInfo() {
   ${canEdit ? "" : '<p class="status">この画面では保存できません（ログインして開くと直せます）。</p>'}`;
 }
 
-function viewPlan() {
-  const posts = shopPosts();
-  if (!posts.length) return `<div class="head"><h1>投稿予定</h1></div><section class="panel"><p style="margin:0">まだ予定はありません。投稿を作ると、ここに並びます。</p></section>`;
-  // 今日から1週間（2026-11-08 真由美さん：日付は自動で変わるように）
-  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return `${d.getMonth() + 1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`; });
-  const slots = {}; [[0, 1, "予約済み"], [2, 0, "確認待ち"], [4, 2, "確認待ち"], [6, 3, "下書き"]].forEach(([d, i, st]) => { if (posts[i]) slots[d] = [posts[i], st]; });
-  return `
-  <div class="head"><h1>投稿予定</h1><p>投稿ボタンはご本人が押します。自動投稿は設定で選べます。</p></div>
-  <p class="small muted" style="margin:0">下の予定は試作用の例です（日付は今日から1週間。どの投稿が入るかと状態は仮）。</p>
-  <div class="week">${days.map((d, i) => {
-    const s = slots[i];
-    return `<div class="day"><header>${d}</header>${s ? `<button class="slot" data-open="${s[0].id}"><span>19:00</span><b>${esc(themeLabel(s[0].theme))}</b>
-      <span style="display:flex;gap:4px;flex-wrap:wrap"><span class="pill ${s[1] === "確認待ち" ? "bad" : s[1] === "予約済み" ? "good" : ""}">${s[1]}</span>${s[0].prices.length ? '<span class="pill price">料金入り</span>' : ""}</span></button>` : ""}</div>`;
-  }).join("")}</div>
-  <section class="panel"><h2>確認待ち</h2>
-    <div class="table-wrap"><table><thead><tr><th>予定</th><th>テーマ</th><th>料金</th><th></th></tr></thead><tbody>
-    ${[[2, posts[0]], [4, posts[2]]].filter(([, p]) => p).map(([i, p]) => `<tr class="click" data-open="${p.id}"><td>${days[i]} 19:00</td><td>${esc(p.title)}</td><td>${p.prices.length ? '<span class="pill price">料金入り</span>' : "—"}</td><td><button class="btn small" type="button" data-open="${p.id}">確認</button></td></tr>`).join("")}
-    </tbody></table></div>
-  </section>`;
+/* 投稿予定（2026-11-08 真由美さん B：日にちと時間を自分で決める）。db の schedule：投稿ごとに1つ {post, shop, date: "YYYY-MM-DD", time: "HH:MM", status: draft|review|booked}
+   試作では予定を入れるだけ（インスタには投稿しない）。料金入りの投稿は、はじめ「確認待ち」 */
+let schedules = [];
+const STATUS = { draft: ["下書き", ""], review: ["確認待ち", "bad"], booked: ["予約済み", "good"] };
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dayLabel = iso => { const d = new Date(iso + "T00:00"); return `${d.getMonth() + 1}/${d.getDate()}（${"日月火水木金土"[d.getDay()]}）`; };
+const schedOf = postId => schedules.find(x => x.id === postId && x.shop === state.shop && !isHidden(x.post));
+function schedForm(sc, post, date, inMake) {   // 予定を入れる・直す（inMake：動画作成の画面から。動画は決まっている）
+  const posts = shopPosts(), cur = sc || {}, first = post || posts.find(p => !schedOf(p.id)), st = cur.status || (first && first.prices.length ? "review" : "draft"), fixed = sc ? sc.post : inMake ? post.id : "";
+  return `<div class="mat-sheet sched-sheet"><b>${sc ? "予定を直す" : inMake ? "投稿日を決める" : `${dayLabel(date)} に予定を入れる`}</b>
+    ${fixed ? `<div class="small">${esc((posts.find(x => x.id === fixed) || {}).title || "")}</div>` : posts.length
+      ? `<label class="small"><b>どの動画？</b><select id="schPost">${posts.map(p => `<option value="${p.id}" ${schedOf(p.id) ? "disabled" : ""} ${first && p.id === first.id ? "selected" : ""}>${esc(p.title)}（${esc((p.at || "2026-10-25").slice(5, 10).replace("-", "/"))}作成）${schedOf(p.id) ? "：予定あり" : ""}</option>`).join("")}</select></label>`
+      : `<p class="small" style="margin:0">まだ作った動画がありません。先に動画作成で作ってください。</p><div class="row-btns"><button class="btn" type="button" data-view="make">動画作成へ</button></div>`}
+    ${fixed || posts.length ? `<div class="row-btns"><label class="small"><b>日にち</b><input type="date" id="schDate" value="${esc(cur.date || date)}"></label>
+      <label class="small"><b>時間</b><input type="time" id="schTime" value="${esc(cur.time || "19:00")}" step="300"></label>
+      <label class="small"><b>状態</b><select id="schStatus">${Object.entries(STATUS).map(([k, [l]]) => `<option value="${k}" ${k === st ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+      <div class="row-btns"><button class="btn" type="button" data-sch-save="${esc(fixed)}" ${dbState === "on" ? "" : "disabled"}>${sc ? "保存" : "予定に入れる"}</button>
+        ${sc && !inMake ? `<button class="btn ghost" type="button" data-open="${sc.post}">動画を開く</button>` : ""}${sc ? `<button class="linkish" type="button" data-sch-del="${sc.post}">予定から外す</button>` : ""}
+        <button class="btn ghost" type="button" data-sch-close="1">やめる</button></div>` : ""}</div>`;
 }
-
+function viewPlan() {
+  const off = state.planWeek || 0, start = new Date(); start.setDate(start.getDate() + off * 7);
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(start); d.setDate(d.getDate() + i); return ymd(d); });
+  const posts = shopPosts(), mine = schedules.filter(x => x.shop === state.shop && posts.some(p => p.id === x.post));
+  const titleOf = id => posts.find(p => p.id === id) || { title: "", prices: [], theme: "" };
+  const review = mine.filter(x => x.status === "review").sort((a, b) => (a.date + a.time) < (b.date + b.time) ? -1 : 1);
+  const open = state.schOpen || "", openSc = open.startsWith("s:") ? mine.find(x => x.post === open.slice(2)) : null;
+  return `
+  <div class="head"><h1>投稿予定</h1><p>何日の何時に上げるかを決めます。投稿ボタンはご本人が押します（自動投稿は設定で選べます）。</p></div>
+  <div class="week-nav"><button class="btn ghost small" type="button" data-week="-1" ${off <= 0 ? "disabled" : ""}>← 前の週</button><b>${dayLabel(days[0])} 〜 ${dayLabel(days[6])}</b><button class="btn ghost small" type="button" data-week="1">次の週 →</button></div>
+  <div class="week">${days.map(d => { const list = mine.filter(x => x.date === d).sort((a, b) => a.time < b.time ? -1 : 1);
+    return `<div class="day"><header>${dayLabel(d)}</header>${list.map(x => { const p = titleOf(x.post), st = STATUS[x.status] || STATUS.draft;
+      return `<button class="slot" type="button" data-sch-open="${x.post}"><span>${esc(x.time)}</span><b>${esc(themeLabel(p.theme))}</b><span style="display:flex;gap:4px;flex-wrap:wrap"><span class="pill ${st[1]}">${st[0]}</span>${p.prices.length ? '<span class="pill price">料金入り</span>' : ""}</span></button>`; }).join("")}
+      <button class="day-add" type="button" data-sch-new="${d}" aria-label="${dayLabel(d)}に予定を入れる">＋</button></div>`; }).join("")}</div>
+  ${open.startsWith("n:") ? schedForm(null, null, open.slice(2)) : openSc ? schedForm(openSc, titleOf(openSc.post)) : ""}
+  <section class="panel"><h2>確認待ち</h2>
+    ${review.length ? `<div class="table-wrap"><table><thead><tr><th>予定</th><th>テーマ</th><th>料金</th><th></th></tr></thead><tbody>
+    ${review.map(x => { const p = titleOf(x.post); return `<tr><td>${dayLabel(x.date)} ${esc(x.time)}</td><td>${esc(p.title)}</td><td>${p.prices.length ? '<span class="pill price">料金入り</span>' : "—"}</td><td><button class="btn small" type="button" data-open="${x.post}">確認</button></td></tr>`; }).join("")}
+    </tbody></table></div>` : '<p class="small muted" style="margin:0">確認待ちの投稿はありません。</p>'}
+  </section>
+  ${posts.length ? "" : '<p class="small muted">まだ作った動画がありません。動画作成で作ると、ここで予定に入れられます。</p>'}`;
+}
+document.addEventListener("change", e => {   // 料金入りの動画を選んだら、はじめは「確認待ち」
+  if (e.target.id !== "schPost") return; const p = shopPosts().find(x => x.id === e.target.value), st = $("#schStatus");
+  if (p && st) st.value = p.prices.length ? "review" : "draft";
+});
+document.addEventListener("click", async e => {
+  const t = e.target;
+  const wk = t.closest("[data-week]"); if (wk) { state.planWeek = Math.max(0, (state.planWeek || 0) + Number(wk.dataset.week)); state.schOpen = ""; render(true); return; }
+  const nw = t.closest("[data-sch-new]"); if (nw) { state.schOpen = "n:" + nw.dataset.schNew; render(true); return; }
+  if (t.closest("[data-sch-edit]")) { state.schEdit = true; render(true); return; }
+  const op = t.closest("[data-sch-open]"); if (op) { state.schOpen = "s:" + op.dataset.schOpen; render(true); return; }
+  if (t.closest("[data-sch-close]")) { state.schOpen = ""; state.schEdit = false; render(true); return; }
+  const dl = t.closest("[data-sch-del]"); if (dl && db) { await db.collection("schedule").doc(dl.dataset.schDel).delete(); schedules = schedules.filter(x => x.id !== dl.dataset.schDel); state.schOpen = ""; state.schEdit = false; toast("✓ 予定から外しました"); render(true); return; }
+  const sv = t.closest("[data-sch-save]"); if (!sv || !db) return;
+  const post = sv.dataset.schSave || ($("#schPost") || {}).value, date = ($("#schDate") || {}).value, time = ($("#schTime") || {}).value || "19:00", status = ($("#schStatus") || {}).value || "draft";
+  if (!post || !date) { toast("動画と日にちを選んでください"); return; }
+  await db.collection("schedule").doc(post).set({ post, shop: state.shop, date, time, status, at: new Date().toISOString() });
+  state.schOpen = ""; state.schEdit = false; toast(`✓ ${dayLabel(date)} ${time} に予定を入れました`); render(true);
+});
 function fbFor(id) { return feedback.filter(f => f.post === id); }
 
 /* かんたんに作る（2026-11-02 真由美さん：難しいのが苦手な人のために、最低限だけの画面と、こだわって直す画面を分ける） */
@@ -1116,7 +1160,10 @@ function curBar(ofTheme, raw) {
     ${ofTheme.length > 1 ? `<span class="themes" role="group" aria-label="このテーマの投稿">${ofTheme.map((x, i) => `<button type="button" data-open="${x.id}" aria-pressed="${x.id === raw.id}">${i + 1}本目${x.at ? "（" + d(x) + "）" : ""}</button>`).join("")}</span>` : ""}
     ${dbState === "on" ? (state.curAsk === raw.id
       ? `<span class="cur-ask"><b>${ofTheme.length > 1 ? `${ofTheme.indexOf(raw) + 1}本目` : "この動画"}を消しますか？</b><small>作成履歴の「消した投稿」から戻せます</small><button class="btn small" type="button" data-cur-del="go">消す</button><button class="btn ghost small" type="button" data-cur-del="no">やめる</button></span>`
-      : `<button class="linkish" type="button" data-cur-del="ask">${ofTheme.length > 1 ? `${ofTheme.indexOf(raw) + 1}本目` : "この動画"}を消す</button>`) : ""}</div>`;
+      : `<button class="linkish" type="button" data-cur-del="ask">${ofTheme.length > 1 ? `${ofTheme.indexOf(raw) + 1}本目` : "この動画"}を消す</button>`) : ""}
+    ${(() => { const sc = schedOf(raw.id);   // 投稿日を決める（投稿予定と同じ予定）
+      if (state.schEdit) return schedForm(sc || null, raw, (sc && sc.date) || ymd(new Date()), true);
+      return `<span class="small">${sc ? `📅 投稿予定：<b>${dayLabel(sc.date)} ${esc(sc.time)}</b>・${(STATUS[sc.status] || STATUS.draft)[0]}` : ""} ${dbState === "on" ? `<button class="btn ghost small" type="button" data-sch-edit="1">${sc ? "予定を変える" : "📅 投稿日を決める"}</button>` : ""}</span>`; })()}</div>`;
 }
 function modeTabs() {
   const m = state.makeMode || "easy";

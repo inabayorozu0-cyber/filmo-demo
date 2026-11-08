@@ -308,6 +308,9 @@ nav button[aria-current="page"] { background: var(--accent); color: #fff; box-sh
 .kitems { margin: 2px 0 0; padding-left: 20px; line-height: 1.7; overflow-wrap: anywhere; } .kitems li + li { margin-top: 4px; }
 .kcard textarea, .kcard input[type=text] { width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
 .kcard label { display: flex; flex-direction: column; gap: 4px; }
+.step-help { margin: -4px 0 10px; font-size: 13px; color: var(--muted); }
+.sub-panel { border: 1px dashed var(--line); border-radius: 14px; padding: 12px; margin-top: 12px; }
+.sub-panel h2 { font-size: 15px; margin: 0 0 6px; }
 .cur-ask { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--price-bg); color: var(--price-ink); border-radius: 12px; padding: 6px 10px; font-size: 13px; }
 .mode-tabs { display: inline-flex; background: var(--sunken); border-radius: 999px; padding: 4px; gap: 4px; }
 .mode-tabs button { border: 0; background: none; border-radius: 999px; padding: 8px 18px; font-weight: 700; color: var(--muted); }
@@ -941,7 +944,8 @@ function viewInfo() {
       : `<button class="btn ghost" type="button" data-edit="faq:new" style="margin-top:10px">＋ 質問を足す</button>`) : ""}
   </section>
   ${updates.length ? `<section class="panel"><h2>定期の情報更新でいただいた返事</h2>${updates.map(c => `<div class="small" style="white-space:pre-wrap;margin-bottom:6px"><span class="pill accent">${esc((c.at || "").slice(0, 10))}</span> ${esc(c.text)}</div>`).join("")}</section>` : ""}
-  ${assetsPanel(canEdit)}
+  <section class="panel"><h2>動画に使う絵・背景</h2><p class="small muted" style="margin:0 0 8px">キャラクターや壁紙は「動画作成」の「素材を決める」で登録・選べるようになりました。</p>
+    <button class="btn ghost" type="button" data-go-media="1">動画作成の「素材を決める」へ</button></section>
   <section class="panel"><h2>お店の色</h2>
     <p class="small muted" style="margin:0 0 10px">動画の文字の色に使います。ロゴや看板の色を選んでください。空のときは、上げてもらった写真から色を拾います。</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1025,7 +1029,7 @@ function curBar(ofTheme, raw) {
 }
 function modeTabs() {
   const m = state.makeMode || "easy";
-  return `<div class="mode-tabs" role="group" aria-label="作り方"><button type="button" data-make-mode="easy" aria-pressed="${m === "easy"}">かんたんに作る</button><button type="button" data-make-mode="pro" aria-pressed="${m === "pro"}">こだわって直す</button></div>`;
+  return `<div class="mode-tabs" role="group" aria-label="作り方"><button type="button" data-make-mode="easy" aria-pressed="${m === "easy"}">AI自動作成</button><button type="button" data-make-mode="pro" aria-pressed="${m === "pro"}">自分で作成</button></div>`;
 }
 /* 自由に作るで情報が足りないとき：フィルモが聞く → 答えをサービス情報の「自由に作るで入れたこと」に入れて、そのまま作る */
 function freeNeedBox() {
@@ -1067,28 +1071,29 @@ function viewEasy() {
   ${curBar(ofTheme, raw)}
   <div class="easy">
     <div class="easy-steps">
-      <section class="panel step"><h2><span class="num">1</span>どんな動画を作る？</h2>
+      <section class="panel step"><h2><span class="num">1</span>テーマを決める</h2><p class="step-help">どんな内容の動画にするかを選びます。</p>
         <div class="cards">${THEMES.map(([k, l]) => { let why = ""; try { selectMaterials(K, k, { faq: "all", title: "（タイトル）", service: (K.services.find(x => x.active) || {}).id }); } catch (e) { why = e.message; }
           const has = all.some(x => x.theme === k);
           return `<button type="button" class="card" data-theme-pick="${k}" aria-pressed="${theme === k}" ${has || !why ? "" : "disabled"} title="${esc(why)}"><b>${l}</b><small>${esc(!has && why ? "サービス情報を足すと作れます" : THEME_DESC[k] || "")}</small></button>`; }).join("")}</div>
         ${theme === "free" ? `<label class="small" style="display:flex;flex-direction:column;gap:4px"><b>タイトルを入れてね</b><input type="text" id="gen-title" value="${esc(state.genTitle || "")}" placeholder="例：年末年始のお知らせ／新しいメニューのご紹介" style="border:2px solid var(--accent);border-radius:999px;padding:10px 16px;font-size:16px"><small class="muted">このタイトルに沿って、お店の情報から合うものを選んで作ります。情報がないことは書きません。</small></label>` : ""}
       </section>
-      <section class="panel step"><h2><span class="num">2</span>写真や動画はある？</h2>
+      <section class="panel step" id="easyStep2"><h2><span class="num">2</span>素材を決める</h2><p class="step-help">動画に何を使うかを選びます。写真がなくても作れます。</p>
         <div class="cards">
-          <button type="button" class="card" data-easy-anim="1" aria-pressed="${useAnim}"><b>なくても大丈夫</b><small>絵と文字のアニメーションで作ります</small></button>
-          <button type="button" class="card" data-easy-anim="0" aria-pressed="${!useAnim}"><b>写真・動画を使う</b><small>スマホで撮ったものを上げるだけ</small></button>
+          <button type="button" class="card" data-easy-anim="1" aria-pressed="${useAnim}"><b>アニメーションのみで作成</b><small>写真なしで、絵と文字が動く動画にします</small></button>
+          <button type="button" class="card" data-easy-anim="0" aria-pressed="${!useAnim}"><b>写真・動画を選ぶ</b><small>スマホの写真・動画や、お店の絵・背景を使います</small></button>
         </div>
         ${useAnim && p ? castPanel(animPost(p), false) : ""}
         ${!useAnim && p && f && assets ? `<label class="btn ghost" style="cursor:pointer">写真・動画をまとめて選ぶ（${f.shots.length}枚まで）<input type="file" accept="image/*,video/*" multiple data-easy-upload="${f.id}" hidden></label>
-          <small class="muted" id="easyUp">上げた順に、動画の場面に入ります。何を撮ればいいかは「こだわって直す」の撮り方ガイドにあります。上げた枚数：${mediaFor(p.id, f.id).length}／${f.shots.length}</small>
+          <small class="muted" id="easyUp">上げた順に、動画の場面に入ります。何を撮ればいいかは「自分で作成」の撮り方ガイドにあります。上げた枚数：${mediaFor(p.id, f.id).length}／${f.shots.length}</small>
           <div class="easy-slots">${f.shots.map((sh, i) => { const m = mediaFor(p.id, f.id).find(x => x.shot === i), d = slotDoc(p.id, f.id, i);
             return `<div class="easy-slot"><div class="cast-th" title="${esc(sh.what)}">${m ? (m.kind === "video" ? `<video src="/_blob/${m.asset}" muted playsinline preload="metadata"></video>` : `<img src="/_blob/${m.asset}" alt="">`) : `<span>${i + 1}</span>`}</div>
               ${libFor(p.id).length ? `<button class="linkish" type="button" data-lib-open="${f.id}:${i}">前の素材</button>` : ""}
               ${d && (d.hist || []).length ? `<button class="linkish" type="button" data-slot-undo="${f.id}:${i}">戻す</button>` : ""}</div>`; }).join("")}</div>
           ${state.libSlot && state.libSlot.startsWith(f.id + ":") ? libPicker(p.id, state.libSlot) : ""}` : ""}
-        ${!useAnim && !p ? '<small class="muted">先に③で文章を作ると、写真を上げられるようになります。</small>' : ""}
+        ${!useAnim && !p ? '<small class="muted">先に③で文章を作ると、写真・動画を場面ごとに入れられるようになります。</small>' : ""}
+        ${!useAnim ? `<div id="easyMedia">${assetsPanel(dbState === "on", true)}</div>` : ""}
       </section>
-      <section class="panel step"><h2><span class="num">3</span>フィルモに作ってもらう</h2>
+      <section class="panel step"><h2><span class="num">3</span>作成する</h2><p class="step-help">フィルモが、お店の情報から投稿文と動画を作ります。</p>
         ${stale ? '<p class="small" style="margin:0;color:var(--price-ink)">サービス情報が新しくなっています。作り直すと、新しい情報で作ります。</p>' : ""}
         ${theme === "free" ? freeNeedBox() : ""}
         ${fixBox(p)}
@@ -1097,10 +1102,10 @@ function viewEasy() {
       </section>
     </div>
     <aside class="easy-side">
-      ${p ? `<div class="phone">${useAnim ? animPanelEasy(p) : `<div class="small muted">写真・動画を上げたら、「こだわって直す」でプレビューできます。</div>`}</div>
+      ${p ? `<div class="phone">${useAnim ? animPanelEasy(p) : `<div class="small muted">写真・動画を上げたら、「自分で作成」でプレビューできます。</div>`}</div>
         <section class="panel" style="display:flex;flex-direction:column;gap:8px"><h2 style="font-size:16px">投稿文</h2>${p.request ? `<small class="muted">頼んだこと：${esc(p.request)}</small>` : ""}<div class="cap-box" id="capBox">${esc(p.caption)}</div>
           <button class="btn ghost" type="button" data-copy-cap="1">投稿文をコピー</button>
-          <button class="btn ghost" type="button" data-make-mode="pro">もっと直したいときは「こだわって直す」へ</button></section>`
+          <button class="btn ghost" type="button" data-make-mode="pro">自分で細かく直したいときは「自分で作成」へ</button></section>`
         : `<div class="phone"><div class="novideo" style="display:grid;place-items:center;text-align:center;padding:16px"><div><img src="anim/filmo.webp" alt="" style="width:120px"><br>テーマを選んで<br>「作ってもらう」を押してね</div></div></div>`}
     </aside>
   </div>`;
@@ -1116,7 +1121,9 @@ function animPanelEasy(p) {
 document.addEventListener("click", async e => {
   const mm = e.target.closest("[data-make-mode]"); if (mm) { state.makeMode = mm.dataset.makeMode; saveUi(); render(); window.scrollTo(0, 0); return; }
   const ea = e.target.closest("[data-easy-anim]");
-  if (ea) { const on = ea.dataset.easyAnim === "1"; state.easyAnim = on; if (state.post) await saveStyle({ mode: on ? "anim" : "media" }); render(true); return; }
+  if (ea) { const on = ea.dataset.easyAnim === "1"; state.easyAnim = on; if (state.post) await saveStyle({ mode: on ? "anim" : "media" }); render(true);
+    if (!on) setTimeout(() => { const el = $("#easyStep2"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 150);   // 写真・動画を選ぶ → 素材の場所へ
+    return; }
   if (e.target.closest("[data-copy-cap]")) {
     const t = $("#capBox"); try { await navigator.clipboard.writeText(t.textContent); toast("✓ 投稿文をコピーしました"); }
     catch (err) { const r = document.createRange(); r.selectNodeContents(t); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast("文字を選びました。長押しでコピーしてください"); }
@@ -1158,7 +1165,7 @@ function viewMake() {
   </div>`;
   const head = `
   <div class="head"><h1>動画作成</h1>${modeTabs()}</div>
-  <p class="small muted" style="margin:0">こだわって直す：文字・音楽・ナレーション・見た目を、自分で細かく直せます。</p>
+  <p class="small muted" style="margin:0">自分で作成：文字・音楽・ナレーション・絵や背景を、自分で細かく決めて直せます。</p>
   <div class="themes" role="group" aria-label="テーマ">
     ${THEMES.map(([k, l]) => { let why = ""; try { selectMaterials(K, k, { faq: 0, title: "（タイトル）", service: (K.services.find(x => x.active) || {}).id }); } catch (e) { why = e.message; }
       const has = all.some(x => x.theme === k);
@@ -2129,9 +2136,9 @@ async function saveAsset(id, patch) {
   const { builtin, ...keep } = cur;
   try { toast("✓ 自動で保存しました"); await db.collection("brand_assets").doc(id).set({ ...keep, ...patch, shop: state.shop, at: new Date().toISOString() }); } catch (e) {}
 }
-function assetsPanel(canEdit) {
+function assetsPanel(canEdit, inMake) {
   const xs = assetsFor(state.shop);
-  return `<section class="panel"><h2>動画に使う絵・背景</h2>
+  return `<section class="${inMake ? "sub-panel" : "panel"}"><h2>${inMake ? "お店の絵・背景（キャラクター・壁紙）" : "動画に使う絵・背景"}</h2>
     <p class="small muted" style="margin:0 0 10px">キャラクターや壁紙を入れておくと、「アニメーションのみで作る」動画に使います。どの場面で使うかと、使い方のメモを決めてください。メモは、AIが置き方を決めるときの参考にします。</p>
     ${xs.length ? `<div class="ba-list">${xs.map(a => `<div class="ba ${a.off ? "ba-off" : ""}">
       <img src="${esc(a.src)}" alt="" loading="lazy">
@@ -2763,6 +2770,9 @@ document.addEventListener("click", async e => {
   await db.collection("karte_edits").doc(`${state.shop}__faq__${f.key}`).set({ shop: state.shop, type: f.added ? "faq-add" : "faq", key: f.key, question: f.question, answer: f.answer, off: !f.off, at: new Date().toISOString() });
   toast(f.off ? "✓ 使うようにしました" : "✓ 使わないようにしました");
 });
+document.addEventListener("click", e => { if (!e.target.closest("[data-go-media]")) return;
+  state.view = "make"; state.makeMode = "easy"; state.easyAnim = false; saveUi(); render();
+  setTimeout(() => { const el = $("#easyStep2"); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 150); });
 /* 直接の修正：サービス情報と投稿文 */
 document.addEventListener("click", async e => {
   const ed = e.target.closest("[data-edit]");
@@ -2900,9 +2910,10 @@ render();
     { text: "はじめまして！<b>フィルモ</b>です🎬<br>お店のインスタのリール動画を、いっしょに作るお手伝いをします。使い方を少しだけ案内しますね。" },
     { el: "#shopSel", text: "ここで<b>お店を選びます</b>。お試しでは「YOROZU」と、架空のパン屋さん「こむぎと日々」が入っています。" },
     { el: '[data-view="info"]', before: go("info"), text: "<b>サービス情報</b>には、お店のことがまとめてあります。投稿の文章は、<b>ここに書いてあることだけ</b>で作ります。情報が多いほど、いい文章になりますよ。" },
-    { el: ".easy-steps .step", before: go("make", "easy"), text: "<b>動画作成</b>では、まず「どんな動画を作るか」を選びます。よくある質問、想い・理念、サービス紹介…など。タイトルを自分で決める「自由に作る」もあります。" },
-    { el: "[data-generate]", text: "選んだら<b>「作ってもらう」</b>を押すだけ！1〜2分で、投稿文と動画ができあがります。写真がなくても、絵と文字のアニメーションで作れます。" },
-    { el: ".mode-tabs", text: "もっと細かく直したいときは<b>「こだわって直す」</b>へ。文字・音楽・ナレーション・絵を、自分で変えられます。" },
+    { el: ".easy-steps .step", before: go("make", "easy"), text: "<b>動画作成</b>では、まず<b>テーマ</b>（どんな内容の動画にするか）を選びます。よくある質問、想い・理念、サービス紹介…など。タイトルを自分で決める「自由に作る」もあります。" },
+    { el: ".easy-steps .step:nth-of-type(2)", text: "次に<b>素材</b>を決めます。写真がなければ<b>「アニメーションのみで作成」</b>、スマホの写真・動画やお店の絵を使うなら<b>「写真・動画を選ぶ」</b>です。" },
+    { el: "[data-generate]", text: "最後に<b>「作ってもらう」</b>を押すだけ！1〜2分で、投稿文と動画ができあがります。写真がなくても、絵と文字のアニメーションで作れます。" },
+    { el: ".mode-tabs", text: "<b>「AI自動作成」</b>はフィルモにおまかせ。<b>「自分で作成」</b>に切り替えると、文字・音楽・ナレーション・絵を自分で細かく決められます。" },
     { el: '[data-view="hist"]', text: "作った動画は<b>作成履歴</b>にたまります。いらないものは、選んで消せます。" },
     { el: ".dm-fab", text: "使いにくいところがあったら、ここに書いて送ってください。<b>アプリをよくするのに使います！</b>", optional: true },
     { text: "案内はここまでです。<b>さっそく作ってみましょう！</b><br><small>この案内は「設定」からもう一度見られます。</small>", last: true },
